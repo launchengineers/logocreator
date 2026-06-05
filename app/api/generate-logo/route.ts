@@ -8,9 +8,10 @@ import { z } from "zod";
 let ratelimit: Ratelimit | undefined;
 
 export async function POST(req: Request) {
-  const user = await currentUser();
+  const clerkEnabled = !!process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
+  const user = clerkEnabled ? await currentUser() : null;
 
-  if (!user) {
+  if (clerkEnabled && !user) {
     return new Response("", { status: 404 });
   }
 
@@ -19,10 +20,12 @@ export async function POST(req: Request) {
     .object({
       userAPIKey: z.string().optional(),
       companyName: z.string(),
-      // selectedLayout: z.string(),
       selectedStyle: z.string(),
-      selectedPrimaryColor: z.string(),
-      selectedBackgroundColor: z.string(),
+      logoType: z.string().optional(),
+      primaryColor: z.string(),
+      backgroundColor: z.string(),
+      detailLevel: z.string().optional(),
+      monochrome: z.boolean().optional(),
       additionalInfo: z.string().optional(),
     })
     .parse(json);
@@ -52,21 +55,25 @@ export async function POST(req: Request) {
 
   if (data.userAPIKey) {
     client.apiKey = data.userAPIKey;
-    (await clerkClient()).users.updateUserMetadata(user.id, {
-      unsafeMetadata: {
-        remaining: "BYOK",
-      },
-    });
+    if (clerkEnabled && user) {
+      (await clerkClient()).users.updateUserMetadata(user.id, {
+        unsafeMetadata: {
+          remaining: "BYOK",
+        },
+      });
+    }
   }
 
   if (ratelimit) {
-    const identifier = user.id;
+    const identifier = user?.id ?? "anonymous";
     const { success, remaining } = await ratelimit.limit(identifier);
-    (await clerkClient()).users.updateUserMetadata(user.id, {
-      unsafeMetadata: {
-        remaining,
-      },
-    });
+    if (clerkEnabled && user) {
+      (await clerkClient()).users.updateUserMetadata(user.id, {
+        unsafeMetadata: {
+          remaining,
+        },
+      });
+    }
 
     if (!success) {
       return new Response(
@@ -79,46 +86,75 @@ export async function POST(req: Request) {
     }
   }
 
-  const flashyStyle =
-    "Flashy, attention grabbing, bold, futuristic, and eye-catching. Use vibrant neon colors with metallic, shiny, and glossy accents.";
-
-  const techStyle =
-    "highly detailed, sharp focus, cinematic, photorealistic, Minimalist, clean, sleek, neutral color pallete with subtle accents, clean lines, shadows, and flat.";
-
-  const modernStyle =
-    "modern, forward-thinking, flat design, geometric shapes, clean lines, natural colors with subtle accents, use strategic negative space to create visual interest.";
-
-  const playfulStyle =
-    "playful, lighthearted, bright bold colors, rounded shapes, lively.";
-
-  const abstractStyle =
-    "abstract, artistic, creative, unique shapes, patterns, and textures to create a visually interesting and wild logo.";
-
-  const minimalStyle =
-    "minimal, simple, timeless, versatile, single color logo, use negative space, flat design with minimal details, Light, soft, and subtle.";
-
   const styleLookup: Record<string, string> = {
-    Flashy: flashyStyle,
-    Tech: techStyle,
-    Modern: modernStyle,
-    Playful: playfulStyle,
-    Abstract: abstractStyle,
-    Minimal: minimalStyle,
+    Flashy:
+      "Flashy, attention grabbing, bold, futuristic and eye-catching, with vibrant neon colors and metallic, glossy accents.",
+    Tech: "Minimalist, clean, sleek and modern, with a neutral palette, subtle accents, clean lines and flat shapes.",
+    Modern:
+      "Modern and forward-thinking, flat design with geometric shapes, clean lines, and strategic negative space.",
+    Playful:
+      "Playful and lighthearted, with bright bold colors, rounded shapes, and a lively, friendly feel.",
+    Abstract:
+      "Abstract and artistic, with unique shapes, patterns and creative forms that feel distinctive.",
+    Minimal:
+      "Minimal, simple and timeless, using negative space, flat design and only the essential details.",
   };
 
-  const prompt = dedent`A single logo, high-quality, award-winning professional design, made for both digital and print media, only contains a few vector shapes, ${styleLookup[data.selectedStyle]}
+  const logoTypeLookup: Record<string, string> = {
+    "icon-name":
+      "a combination mark — a distinctive icon paired with the company name in clean, legible typography",
+    icon: "an icon-only symbol with no text — a single, standalone mark",
+    wordmark:
+      "a wordmark — the company name set as distinctive, stylized typography, with no separate icon",
+    monogram:
+      "a monogram / lettermark built only from the company's initials, arranged into a single geometric mark",
+    emblem:
+      "an emblem / badge — the company name enclosed within a bordered shape such as a circle, shield or seal",
+    abstract:
+      "an abstract geometric mark with no text — non-representational, modern and clean",
+  };
 
-  Primary color is ${data.selectedPrimaryColor.toLowerCase()} and background color is ${data.selectedBackgroundColor.toLowerCase()}. The company name is ${data.companyName}, make sure to include the company name in the logo. ${data.additionalInfo ? `Additional info: ${data.additionalInfo}` : ""}`;
+  const detailLookup: Record<string, string> = {
+    Minimal:
+      "Keep it minimalist: two or three simple shapes, generous negative space, no fine detail — instantly recognizable even at favicon size.",
+    Balanced:
+      "Use a clean, balanced level of detail: simple enough to scale anywhere, with enough character to be memorable.",
+    Detailed:
+      "Allow refined, considered detail and craftsmanship, while keeping it a clean, scalable logo.",
+  };
+
+  const logoType = data.logoType ?? "icon-name";
+  const hasText = ["icon-name", "wordmark", "monogram", "emblem"].includes(
+    logoType,
+  );
+
+  const textClause = !hasText
+    ? "Do not include any text, letters or words."
+    : logoType === "monogram"
+      ? `Use only the initials of "${data.companyName}", rendered correctly.`
+      : `Include the company name "${data.companyName}", spelled correctly and clearly legible.`;
+
+  const colorClause = data.monochrome
+    ? `Monochrome: use a single color ${data.primaryColor} for the entire mark, on a solid ${data.backgroundColor} background.`
+    : `Primary color ${data.primaryColor}, on a solid ${data.backgroundColor} background.`;
+
+  const prompt = dedent`A single ${logoTypeLookup[logoType] ?? logoTypeLookup["icon-name"]}. A high-quality, award-winning, professional logo in a flat vector style, made for both digital and print. ${styleLookup[data.selectedStyle] ?? ""} ${detailLookup[data.detailLevel ?? "Balanced"] ?? ""}
+
+  ${colorClause} ${textClause} Centered, balanced composition with crisp clean edges and a solid, uncluttered background.${data.additionalInfo ? ` Additional direction: ${data.additionalInfo}.` : ""}`;
+
+  const negativePrompt =
+    "photorealistic, photograph, 3d render, mockup, realistic, busy cluttered background, gradient mesh, drop shadow, watermark, signature, deformed text, extra letters, misspelled, blurry, low quality, jpeg artifacts, pixelated";
 
   try {
-    const response = await client.images.create({
+    const body = {
       prompt,
-      model: "black-forest-labs/FLUX.1.1-pro",
-      width: 768,
-      height: 768,
-      // @ts-expect-error - this is not typed in the API
+      model: "black-forest-labs/FLUX.2-pro",
+      width: 1024,
+      height: 1024,
       response_format: "base64",
-    });
+      negative_prompt: negativePrompt,
+    };
+    const response = await client.images.create(body);
     return Response.json(response.data[0], { status: 200 });
   } catch (error) {
     const invalidApiKey = z

@@ -1,34 +1,25 @@
 "use client";
 
-import Spinner from "@/app/components/Spinner";
+import { useEffect, useRef, useState } from "react";
+import { ChevronRight, Github, Sparkles } from "lucide-react";
+import { toast } from "@/hooks/use-toast";
+import { cn } from "@/lib/utils";
 import { Button } from "@/app/components/ui/button";
 import { Input } from "@/app/components/ui/input";
-import { motion } from "framer-motion";
 import { Textarea } from "@/app/components/ui/textarea";
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { toast } from "@/hooks/use-toast";
-import { SignInButton, useUser } from "@clerk/nextjs";
-import * as RadioGroup from "@radix-ui/react-radio-group";
-import { DownloadIcon, RefreshCwIcon } from "lucide-react";
-import Image from "next/image";
-import { useState } from "react";
-import Header from "./components/Header";
-import Footer from "./components/Footer";
-import { domain } from "@/app/lib/domain";
-import InfoTooltip from "./components/InfoToolTip";
+import Logo from "./components/Logo";
+import ThemeToggle from "./components/ThemeToggle";
+import ApiKeyDialog from "./components/ApiKeyDialog";
+import StylePicker from "./components/StylePicker";
+import ColorSwatches from "./components/ColorSwatches";
+import Segmented from "./components/Segmented";
+import LogoTypeSelect, { LOGO_TYPES } from "./components/LogoTypeSelect";
+import TogetherCredit from "./components/TogetherCredit";
+import GenerationModal from "./components/GenerationModal";
+import BrandKitModal from "./components/BrandKitModal";
+import Gallery, { type GenParams, type Generation } from "./components/Gallery";
 
-// const layouts = [
-//   { name: "Solo", icon: "/solo.svg" },
-//   { name: "Side", icon: "/side.svg" },
-//   { name: "Stack", icon: "/stack.svg" },
-// ];
+const FREE_CREDITS = 3;
 
 const logoStyles = [
   { name: "Tech", icon: "/tech.svg" },
@@ -40,381 +31,387 @@ const logoStyles = [
 ];
 
 const primaryColors = [
-  { name: "Blue", color: "#0F6FFF" },
-  { name: "Red", color: "#FF0000" },
-  { name: "Green", color: "#00FF00" },
-  { name: "Yellow", color: "#FFFF00" },
+  { name: "Blue", color: "#2F6FF5" },
+  { name: "Red", color: "#E5484D" },
+  { name: "Green", color: "#30A46C" },
+  { name: "Yellow", color: "#F2C40F" },
 ];
 
 const backgroundColors = [
   { name: "White", color: "#FFFFFF" },
-  { name: "Gray", color: "#CCCCCC" },
-  { name: "Black", color: "#000000" },
+  { name: "Gray", color: "#C9C8C2" },
+  { name: "Black", color: "#14130F" },
 ];
 
+const detailLevels = ["Minimal", "Balanced", "Detailed"] as const;
+
+function XLogo({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" className={className}>
+      <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24h-6.66l-5.214-6.817-5.966 6.817H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231 5.45-6.231Zm-1.161 17.52h1.833L7.084 4.126H5.117L17.083 19.77Z" />
+    </svg>
+  );
+}
+
+const socialLink =
+  "flex size-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground";
+
 export default function Page() {
-  const [userAPIKey, setUserAPIKey] = useState(() => {
-    if (typeof window !== "undefined") {
-      return localStorage.getItem("userAPIKey") || "";
-    }
-    return "";
-  });
+  // Inputs
   const [companyName, setCompanyName] = useState("");
-  // const [selectedLayout, setSelectedLayout] = useState(layouts[0].name);
+  const [logoType, setLogoType] = useState(LOGO_TYPES[0].key as string);
   const [selectedStyle, setSelectedStyle] = useState(logoStyles[0].name);
-  const [selectedPrimaryColor, setSelectedPrimaryColor] = useState(
-    primaryColors[0].name,
+  const [primaryColor, setPrimaryColor] = useState(primaryColors[0].color);
+  const [backgroundColor, setBackgroundColor] = useState(
+    backgroundColors[0].color,
   );
-  const [selectedBackgroundColor, setSelectedBackgroundColor] = useState(
-    backgroundColors[0].name,
-  );
+  const [detailLevel, setDetailLevel] = useState<string>("Balanced");
+  const [monochrome, setMonochrome] = useState(false);
   const [additionalInfo, setAdditionalInfo] = useState("");
+  const [showAdvanced, setShowAdvanced] = useState(false);
+
+  // Account-less state
+  const [userAPIKey, setUserAPIKey] = useState("");
+  const [credits, setCredits] = useState(FREE_CREDITS);
+  const [apiKeyOpen, setApiKeyOpen] = useState(false);
+
+  // Generation state
   const [isLoading, setIsLoading] = useState(false);
-  const [generatedImage, setGeneratedImage] = useState("");
+  const [generations, setGenerations] = useState<Generation[]>([]);
+  const idRef = useRef(0);
 
-  const { isSignedIn, isLoaded, user } = useUser();
+  // Modals
+  const [activeGen, setActiveGen] = useState<Generation | null>(null);
+  const [brandKitGen, setBrandKitGen] = useState<Generation | null>(null);
+  const [pendingBrandKitGen, setPendingBrandKitGen] =
+    useState<Generation | null>(null);
 
-  const handleAPIKeyChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const newValue = e.target.value;
-    setUserAPIKey(newValue);
-    localStorage.setItem("userAPIKey", newValue);
-  };
+  // Load persisted key + credits after mount (avoids hydration mismatches).
+  useEffect(() => {
+    setUserAPIKey(localStorage.getItem("userAPIKey") || "");
+    const stored = localStorage.getItem("lc_credits");
+    if (stored !== null) setCredits(Math.max(0, parseInt(stored, 10) || 0));
+  }, []);
 
-  async function generateLogo() {
-    if (!isSignedIn) {
+  const hasOwnKey = userAPIKey.trim().length > 0;
+
+  function persistCredits(n: number) {
+    setCredits(n);
+    localStorage.setItem("lc_credits", String(n));
+  }
+
+  function handleApiKeySave(key: string) {
+    setUserAPIKey(key);
+    localStorage.setItem("userAPIKey", key);
+    // If they were trying to make a brand kit, continue into it now.
+    if (key.trim() && pendingBrandKitGen) {
+      setBrandKitGen(pendingBrandKitGen);
+      setPendingBrandKitGen(null);
+    }
+  }
+
+  // Brand kit always requires the user's own key.
+  function handleCreateBrandKit(gen: Generation) {
+    setActiveGen(null);
+    if (userAPIKey.trim()) {
+      setBrandKitGen(gen);
+    } else {
+      setPendingBrandKitGen(gen);
+      setApiKeyOpen(true);
+    }
+  }
+
+  async function runGeneration(params: GenParams) {
+    // Out of free credits and no key → prompt for a key instead of generating.
+    if (!hasOwnKey && credits <= 0) {
+      setApiKeyOpen(true);
       return;
     }
 
     setIsLoading(true);
-
-    const res = await fetch("/api/generate-logo", {
-      method: "POST",
-      body: JSON.stringify({
-        userAPIKey,
-        companyName,
-        // selectedLayout,
-        selectedStyle,
-        selectedPrimaryColor,
-        selectedBackgroundColor,
-        additionalInfo,
-      }),
-    });
-
-    if (res.ok) {
-      const json = await res.json();
-      setGeneratedImage(`data:image/png;base64,${json.b64_json}`);
-      await user.reload();
-    } else if (res.headers.get("Content-Type") === "text/plain") {
-      toast({
-        variant: "destructive",
-        title: res.statusText,
-        description: await res.text(),
+    try {
+      const res = await fetch("/api/generate-logo", {
+        method: "POST",
+        body: JSON.stringify({ userAPIKey, ...params }),
       });
-    } else {
+
+      if (res.ok) {
+        const json = await res.json();
+        idRef.current += 1;
+        setGenerations((prev) => [
+          {
+            id: `g${idRef.current}`,
+            image: `data:image/png;base64,${json.b64_json}`,
+            companyName: params.companyName,
+            params,
+          },
+          ...prev,
+        ]);
+        if (!hasOwnKey) persistCredits(Math.max(0, credits - 1));
+      } else if (res.headers.get("Content-Type") === "text/plain") {
+        toast({
+          variant: "destructive",
+          title: res.statusText,
+          description: await res.text(),
+        });
+      } else {
+        toast({
+          variant: "destructive",
+          title: "Whoops!",
+          description: `There was a problem processing your request: ${res.statusText}`,
+        });
+      }
+    } catch {
       toast({
         variant: "destructive",
         title: "Whoops!",
-        description: `There was a problem processing your request: ${res.statusText}`,
+        description: "Something went wrong. Please try again.",
       });
+    } finally {
+      setIsLoading(false);
     }
-
-    setIsLoading(false);
   }
 
-  return (
-    <div className="flex h-screen flex-col overflow-y-auto overflow-x-hidden bg-[#343434] md:flex-row">
-      <Header className="block md:hidden" />
+  function currentParams(): GenParams {
+    return {
+      companyName,
+      selectedStyle,
+      logoType,
+      primaryColor,
+      backgroundColor,
+      detailLevel,
+      monochrome,
+      additionalInfo,
+    };
+  }
 
-      <div className="flex w-full flex-col md:flex-row">
-        <div className="relative flex h-full w-full flex-col bg-[#2C2C2C] text-[#F3F3F3] md:max-w-sm">
+  const creditCaption = hasOwnKey
+    ? "Using your API key — unlimited"
+    : credits > 0
+      ? `${credits} free ${credits === 1 ? "credit" : "credits"} left`
+      : "Out of free credits";
+
+  return (
+    <div className="flex min-h-[100svh] flex-col md:h-[100svh] md:overflow-hidden">
+      <div className="flex flex-1 flex-col md:flex-row md:overflow-hidden">
+        {/* ── Control panel ─────────────────────────────── */}
+        <aside className="flex w-full shrink-0 flex-col border-border md:w-[21rem] md:border-r lg:w-[23.5rem]">
+          <div className="flex items-center justify-between gap-2 px-5 pb-3 pt-5">
+            <Logo />
+            <div className="flex items-center gap-1.5">
+              <ApiKeyDialog
+                open={apiKeyOpen}
+                onOpenChange={setApiKeyOpen}
+                apiKey={userAPIKey}
+                onSave={handleApiKeySave}
+                credits={credits}
+              />
+              <ThemeToggle />
+            </div>
+          </div>
+
           <form
             onSubmit={(e) => {
               e.preventDefault();
-              setGeneratedImage("");
-              generateLogo();
+              runGeneration(currentParams());
             }}
-            className="flex h-full w-full flex-col"
+            className="flex min-h-0 flex-1 flex-col"
           >
-            <fieldset className="flex grow flex-col" disabled={!isSignedIn}>
-              <div className="flex-grow overflow-y-auto">
-                <div className="px-8 pb-0 pt-4 md:px-6 md:pt-6">
-                  {/* API Key Section */}
-                  <div className="mb-6">
-                    <label
-                      htmlFor="api-key"
-                      className="mb-2 block text-xs font-bold uppercase text-[#F3F3F3]"
-                    >
-                      TOGETHER API KEY
-                      <span className="ml-2 text-xs uppercase text-[#6F6F6F]">
-                        [OPTIONAL]
-                      </span>
-                    </label>
-                    <Input
-                      value={userAPIKey}
-                      onChange={handleAPIKeyChange}
-                      placeholder="API Key"
-                      type="password"
-                    />
-                  </div>
-                  <div className="-mx-6 mb-6 h-px w-[calc(100%+48px)] bg-[#343434]"></div>
-                  <div className="mb-6">
-                    <label
-                      htmlFor="company-name"
-                      className="mb-2 block text-xs font-bold uppercase text-[#6F6F6F]"
-                    >
-                      Company Name
-                    </label>
-                    <Input
-                      value={companyName}
-                      onChange={(e) => setCompanyName(e.target.value)}
-                      placeholder="Sam's Burgers"
-                      required
-                    />
-                  </div>
-                  {/* Layout Section */}
-                  {/* <div className="mb-6">
-                    <label className="mb-2 flex items-center text-xs font-bold uppercase text-[#6F6F6F]">
-                      Layout
-                      <InfoTooltip content="Select a layout for your logo" />
-                    </label>
-                    <RadioGroup.Root
-                      value={selectedLayout}
-                      onValueChange={setSelectedLayout}
-                      className="group/root grid grid-cols-3 gap-3"
-                    >
-                      {layouts.map((layout) => (
-                        <RadioGroup.Item
-                          value={layout.name}
-                          key={layout.name}
-                          className="group text-[#6F6F6F] focus-visible:outline-none data-[state=checked]:text-white"
-                        >
-                          <Image
-                            src={layout.icon}
-                            alt={layout.name}
-                            width={96}
-                            height={96}
-                            className="w-full rounded-md border border-transparent group-focus-visible:outline group-focus-visible:outline-offset-2 group-focus-visible:outline-gray-400 group-data-[state=checked]:border-white"
-                          />
-                          <span className="text-xs">{layout.name}</span>
-                        </RadioGroup.Item>
-                      ))}
-                    </RadioGroup.Root>
-                  </div> */}
-                  {/* Logo Style Section */}
-                  <div className="mb-6">
-                    <label className="mb-2 flex items-center text-xs font-bold uppercase text-[#6F6F6F]">
-                      STYLE
-                      <InfoTooltip content="Choose a style for your logo" />
-                    </label>
-                    <RadioGroup.Root
-                      value={selectedStyle}
-                      onValueChange={setSelectedStyle}
-                      className="grid grid-cols-3 gap-3"
-                    >
-                      {logoStyles.map((logoStyle) => (
-                        <RadioGroup.Item
-                          value={logoStyle.name}
-                          key={logoStyle.name}
-                          className="group text-[#6F6F6F] focus-visible:outline-none data-[state=checked]:text-white"
-                        >
-                          <Image
-                            src={logoStyle.icon}
-                            alt={logoStyle.name}
-                            width={96}
-                            height={96}
-                            className="w-full rounded-md border border-transparent group-focus-visible:outline group-focus-visible:outline-offset-2 group-focus-visible:outline-gray-400 group-data-[state=checked]:border-white"
-                          />
-                          <span className="text-xs">{logoStyle.name}</span>
-                        </RadioGroup.Item>
-                      ))}
-                    </RadioGroup.Root>
-                  </div>
-                  {/* Color Picker Section */}
-                  <div className="mb-[25px] flex flex-col md:flex-row md:space-x-3">
-                    <div className="mb-4 flex-1 md:mb-0">
-                      <label className="mb-1 block text-xs font-bold uppercase text-[#6F6F6F]">
-                        Primary
-                      </label>
-                      <Select
-                        value={selectedPrimaryColor}
-                        onValueChange={setSelectedPrimaryColor}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select a fruit" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectGroup>
-                            {primaryColors.map((color) => (
-                              <SelectItem key={color.color} value={color.name}>
-                                <span className="flex items-center">
-                                  <span
-                                    style={{ backgroundColor: color.color }}
-                                    className="mr-2 size-4 rounded-sm bg-white"
-                                  />
-                                  {color.name}
-                                </span>
-                              </SelectItem>
-                            ))}
-                          </SelectGroup>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="flex-1">
-                      <label className="mb-1 block items-center text-xs font-bold uppercase text-[#6F6F6F]">
-                        Background
-                      </label>
-                      <Select
-                        value={selectedBackgroundColor}
-                        onValueChange={setSelectedBackgroundColor}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select a fruit" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectGroup>
-                            {backgroundColors.map((color) => (
-                              <SelectItem key={color.color} value={color.name}>
-                                <span className="flex items-center">
-                                  <span
-                                    style={{ backgroundColor: color.color }}
-                                    className="mr-2 size-4 rounded-sm bg-white"
-                                  />
-                                  {color.name}
-                                </span>
-                              </SelectItem>
-                            ))}
-                          </SelectGroup>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </div>
-                  {/* Additional Options Section */}
-                  <div className="mb-1">
-                    <div className="mt-1">
-                      <div className="mb-1">
-                        <label
-                          htmlFor="additional-info"
-                          className="mb-2 flex items-center text-xs font-bold uppercase text-[#6F6F6F]"
-                        >
-                          Additional Info
-                          <InfoTooltip content="Provide any additional information about your logo" />
-                        </label>
-                        <Textarea
-                          value={additionalInfo}
-                          onChange={(e) => setAdditionalInfo(e.target.value)}
-                          placeholder="Enter additional information"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                </div>
+            <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-5 py-3">
+              <div>
+                <label htmlFor="company-name" className="label-eyebrow mb-2 block">
+                  Company name
+                </label>
+                <Input
+                  id="company-name"
+                  value={companyName}
+                  onChange={(e) => setCompanyName(e.target.value)}
+                  placeholder="Acme Inc."
+                  required
+                />
               </div>
-              <div className="px-8 py-4 md:px-6 md:py-6">
-                <Button
-                  size="lg"
-                  className="w-full text-base font-bold"
-                  type="submit"
-                  disabled={isLoading}
+
+              <div>
+                <span className="label-eyebrow mb-2 block">Logo type</span>
+                <LogoTypeSelect value={logoType} onChange={setLogoType} />
+              </div>
+
+              <div>
+                <span className="label-eyebrow mb-2.5 block">Style</span>
+                <StylePicker
+                  styles={logoStyles}
+                  value={selectedStyle}
+                  onChange={setSelectedStyle}
+                />
+              </div>
+
+              <div className="flex flex-wrap gap-x-10 gap-y-5">
+                <ColorSwatches
+                  label="Primary"
+                  presets={primaryColors}
+                  value={primaryColor}
+                  onChange={setPrimaryColor}
+                />
+                <ColorSwatches
+                  label="Background"
+                  presets={backgroundColors}
+                  value={backgroundColor}
+                  onChange={setBackgroundColor}
+                />
+              </div>
+
+              <div>
+                <button
+                  type="button"
+                  onClick={() => setShowAdvanced((v) => !v)}
+                  className="label-eyebrow flex items-center gap-1 transition-colors hover:text-foreground"
+                  aria-expanded={showAdvanced}
                 >
-                  {isLoading ? (
-                    <div className="loader mr-2" />
-                  ) : (
-                    <Image
-                      src="/generate-icon.svg"
-                      alt="Generate Icon"
-                      width={16}
-                      height={16}
-                      className="mr-2"
-                    />
-                  )}
-                  {isLoading ? "Loading..." : "Generate Logo"}{" "}
-                </Button>
+                  <ChevronRight
+                    className={cn(
+                      "size-3 transition-transform duration-200",
+                      showAdvanced && "rotate-90",
+                    )}
+                  />
+                  Advanced
+                  <span className="ml-1 lowercase tracking-normal text-muted-foreground/60">
+                    (optional)
+                  </span>
+                </button>
+
+                {showAdvanced && (
+                  <div className="mt-3 space-y-4">
+                    <div>
+                      <span className="label-eyebrow mb-2 block">Detail</span>
+                      <Segmented
+                        options={detailLevels}
+                        value={detailLevel}
+                        onChange={setDetailLevel}
+                      />
+                    </div>
+
+                    <div className="flex items-center justify-between">
+                      <span className="label-eyebrow">Monochrome</span>
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={monochrome}
+                        aria-label="Monochrome"
+                        onClick={() => setMonochrome((v) => !v)}
+                        className={cn(
+                          "relative h-5 w-9 shrink-0 rounded-full transition-colors",
+                          monochrome ? "bg-primary" : "bg-input",
+                        )}
+                      >
+                        <span
+                          className={cn(
+                            "absolute top-0.5 size-4 rounded-full bg-white transition-transform duration-200",
+                            monochrome
+                              ? "translate-x-[1.125rem]"
+                              : "translate-x-0.5",
+                          )}
+                        />
+                      </button>
+                    </div>
+
+                    <div>
+                      <span className="label-eyebrow mb-2 block">Details</span>
+                      <Textarea
+                        value={additionalInfo}
+                        onChange={(e) => setAdditionalInfo(e.target.value)}
+                        placeholder="Symbols to include, mood, things to avoid…"
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
-            </fieldset>
-          </form>
+            </div>
 
-          {isLoaded && !isSignedIn && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              className="absolute inset-0 flex flex-col items-center justify-center bg-black/75 px-6"
-            >
-              <div className="rounded bg-gray-200 p-4 text-gray-900">
-                <p className="text-lg">
-                  Create a free account to start making logos:
-                </p>
+            <div className="space-y-3 border-t border-border px-5 py-4">
+              <Button
+                type="submit"
+                size="lg"
+                disabled={isLoading}
+                className="w-full rounded-xl text-[0.95rem] font-bold"
+              >
+                {isLoading ? (
+                  <span className="spinner-ring size-4" />
+                ) : (
+                  <Sparkles className="size-4" />
+                )}
+                {isLoading ? "Generating…" : "Generate logo"}
+              </Button>
 
-                <div className="mt-4">
-                  <SignInButton
-                    mode="modal"
-                    signUpForceRedirectUrl={domain}
-                    forceRedirectUrl={domain}
-                  >
-                    <Button
-                      size="lg"
-                      className="w-full text-base font-semibold"
-                      variant="secondary"
+              <p className="text-center text-xs text-muted-foreground">
+                <span className={cn(!hasOwnKey && credits <= 0 && "text-amber-500")}>
+                  {creditCaption}
+                </span>
+                {!hasOwnKey && (
+                  <>
+                    {" · "}
+                    <button
+                      type="button"
+                      onClick={() => setApiKeyOpen(true)}
+                      className="font-medium text-foreground underline decoration-border underline-offset-2 transition-colors hover:decoration-foreground"
                     >
-                      Sign in
-                    </Button>
-                  </SignInButton>
+                      {credits <= 0 ? "Add your key" : "Use your key"}
+                    </button>
+                  </>
+                )}
+              </p>
+
+              <div className="flex items-center justify-between">
+                <TogetherCredit />
+                <div className="flex items-center gap-0.5">
+                  <a
+                    href="https://github.com/Nutlope/logocreator"
+                    target="_blank"
+                    rel="noreferrer"
+                    aria-label="GitHub"
+                    className={socialLink}
+                  >
+                    <Github className="size-[1.05rem]" />
+                  </a>
+                  <a
+                    href="https://x.com/nutlope"
+                    target="_blank"
+                    rel="noreferrer"
+                    aria-label="X (Twitter)"
+                    className={socialLink}
+                  >
+                    <XLogo className="size-3.5" />
+                  </a>
                 </div>
               </div>
-            </motion.div>
-          )}
-        </div>
-
-        <div className="flex w-full flex-col pt-12 md:pt-0">
-          <Header className="hidden md:block" />{" "}
-          {/* Show header on larger screens */}
-          <div className="relative flex flex-grow items-center justify-center px-4">
-            <div className="relative aspect-square w-full max-w-lg">
-              {generatedImage ? (
-                <>
-                  <Image
-                    className={`${isLoading ? "animate-pulse" : ""}`}
-                    width={512}
-                    height={512}
-                    src={generatedImage}
-                    alt=""
-                  />
-                  <div
-                    className={`pointer-events-none absolute inset-0 transition ${isLoading ? "bg-black/50 duration-500" : "bg-black/0 duration-0"}`}
-                  />
-
-                  <div className="absolute -right-12 top-0 flex flex-col gap-2">
-                    <Button size="icon" variant="secondary" asChild>
-                      <a href={generatedImage} download="logo.png">
-                        <DownloadIcon />
-                      </a>
-                    </Button>
-                    <Button
-                      size="icon"
-                      onClick={generateLogo}
-                      variant="secondary"
-                    >
-                      <Spinner loading={isLoading}>
-                        <RefreshCwIcon />
-                      </Spinner>
-                    </Button>
-                  </div>
-                </>
-              ) : (
-                <Spinner loading={isLoading} className="size-8 text-white">
-                  <div className="flex aspect-square w-full flex-col items-center justify-center rounded-xl bg-[#2C2C2C]">
-                    <h4 className="text-center text-base leading-tight text-white">
-                      Generate your dream
-                      <br />
-                      logo in 10 seconds!
-                    </h4>
-                  </div>
-                </Spinner>
-              )}
             </div>
-          </div>
-          <Footer />
-        </div>
+          </form>
+        </aside>
+
+        {/* ── Generations gallery ───────────────────────── */}
+        <main className="relative flex-1 md:overflow-y-auto">
+          <Gallery
+            generations={generations}
+            isLoading={isLoading}
+            onRegenerate={(gen) => runGeneration(gen.params)}
+            onOpen={(gen) => setActiveGen(gen)}
+          />
+        </main>
       </div>
+
+      <GenerationModal
+        gen={activeGen}
+        onClose={() => setActiveGen(null)}
+        onRegenerate={(gen) => {
+          setActiveGen(null);
+          runGeneration(gen.params);
+        }}
+        onCreateBrandKit={handleCreateBrandKit}
+      />
+      <BrandKitModal
+        gen={brandKitGen}
+        apiKey={userAPIKey}
+        onClose={() => setBrandKitGen(null)}
+      />
     </div>
   );
 }

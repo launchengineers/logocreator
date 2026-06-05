@@ -12,7 +12,11 @@ export default async function middleware(
     return new NextResponse("Access Denied", { status: 403 });
   }
 
-  // If not from Russia, proceed with Clerk authentication
+  // If not from Russia, proceed with Clerk authentication.
+  // Dev fallback: with no Clerk key set, skip auth so the app renders.
+  if (!process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY) {
+    return NextResponse.next();
+  }
   return clerkMiddleware()(req, evt);
 }
 
