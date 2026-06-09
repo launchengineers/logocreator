@@ -1,4 +1,5 @@
 import { clerkMiddleware } from "@clerk/nextjs/server";
+import { geolocation } from "@vercel/functions";
 import { NextResponse, NextFetchEvent } from "next/server";
 import type { NextRequest } from "next/server";
 
@@ -6,7 +7,9 @@ export default async function middleware(
   req: NextRequest,
   evt: NextFetchEvent,
 ) {
-  const country = req.geo?.country;
+  // `req.geo` was removed from NextRequest in Next 15; read it from the Vercel
+  // edge geolocation helper instead (country is undefined off-Vercel, fine here).
+  const { country } = geolocation(req);
   // Check for Russian traffic first as there's too much spam from Russia
   if (country === "RU") {
     return new NextResponse("Access Denied", { status: 403 });

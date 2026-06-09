@@ -5,7 +5,6 @@ import { ClerkProvider } from "@clerk/nextjs";
 import { Toaster } from "@/app/components/ui/toaster";
 import { TooltipProvider } from "@/app/components/ui/tooltip";
 import { ThemeProvider } from "@/app/components/ThemeProvider";
-import PlausibleProvider from "next-plausible";
 
 const satoshi = localFont({
   src: [
@@ -60,9 +59,6 @@ export default function RootLayout({
       className={`${satoshi.variable} h-full`}
       suppressHydrationWarning
     >
-      <head>
-        <PlausibleProvider domain="logo-creator.io" />
-      </head>
       <body className="min-h-full font-sans">
         <ThemeProvider
           attribute="class"

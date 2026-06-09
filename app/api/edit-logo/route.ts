@@ -9,9 +9,16 @@ import { z } from "zod";
 export async function POST(req: Request) {
   const parsed = z
     .object({
-      userAPIKey: z.string().optional(),
-      image: z.string(), // data URL or https URL of the base logo
-      prompt: z.string(),
+      userAPIKey: z.string().max(200).optional(),
+      // Only an inline image data URL, never an arbitrary http/file URL (which
+      // the model backend would otherwise fetch server-side on our behalf).
+      image: z
+        .string()
+        .regex(
+          /^data:image\/[a-zA-Z0-9.+-]+;base64,/,
+          "Provide an image data URL.",
+        ),
+      prompt: z.string().max(2000),
       width: z.number().optional(),
       height: z.number().optional(),
     })
@@ -23,6 +30,30 @@ export async function POST(req: Request) {
     });
   }
   const data = parsed.data;
+
+  // Cap payload size (~5 MB image) before forwarding it to the model.
+  if (data.image.length > 7_000_000) {
+    return new Response("That image is too large.", {
+      status: 413,
+      headers: { "Content-Type": "text/plain" },
+    });
+  }
+
+  // In production, don't spend the owner's server key from a fully unprotected
+  // deploy (no BYOK, no Clerk, no Upstash limiter). Allowed in local dev.
+  const clerkEnabled = !!process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
+  const hasLimiter = !!process.env.UPSTASH_REDIS_REST_URL;
+  if (
+    process.env.NODE_ENV === "production" &&
+    !data.userAPIKey &&
+    !clerkEnabled &&
+    !hasLimiter
+  ) {
+    return new Response("Add your own Together API key to edit logos here.", {
+      status: 401,
+      headers: { "Content-Type": "text/plain" },
+    });
+  }
 
   const apiKey = data.userAPIKey?.trim() || process.env.TOGETHER_API_KEY;
   if (!apiKey) {
@@ -47,11 +78,11 @@ export async function POST(req: Request) {
       model: "black-forest-labs/FLUX.1-kontext-pro",
       prompt: data.prompt,
       image_url: data.image,
-      width: data.width ?? 1024,
-      height: data.height ?? 1024,
-      response_format: "base64",
+      width: Math.min(1536, Math.max(64, Math.round(data.width ?? 1024))),
+      height: Math.min(1536, Math.max(64, Math.round(data.height ?? 1024))),
+      response_format: "base64" as const,
     };
-    const response = await client.images.create(body);
+    const response = await client.images.generate(body);
     return Response.json(response.data[0], { status: 200 });
   } catch (error) {
     const invalidApiKey = z

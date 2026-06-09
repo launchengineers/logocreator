@@ -52,8 +52,6 @@ function colorName(hex: string): string {
   return best;
 }
 
-let ratelimit: Ratelimit | undefined;
-
 export async function POST(req: Request) {
   const clerkEnabled = !!process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
   const user = clerkEnabled ? await currentUser() : null;
@@ -64,16 +62,16 @@ export async function POST(req: Request) {
 
   const parsed = z
     .object({
-      userAPIKey: z.string().optional(),
-      companyName: z.string(),
-      selectedStyle: z.string(),
-      logoType: z.string().optional(),
-      primaryColor: z.string(),
-      backgroundColor: z.string(),
-      detailLevel: z.string().optional(),
+      userAPIKey: z.string().max(200).optional(),
+      companyName: z.string().max(120),
+      selectedStyle: z.string().max(40),
+      logoType: z.string().max(40).optional(),
+      primaryColor: z.string().max(40),
+      backgroundColor: z.string().max(40),
+      detailLevel: z.string().max(40).optional(),
       monochrome: z.boolean().optional(),
-      additionalInfo: z.string().optional(),
-      referenceDescription: z.string().optional(),
+      additionalInfo: z.string().max(1500).optional(),
+      referenceDescription: z.string().max(600).optional(),
     })
     .safeParse(await req.json().catch(() => null));
   if (!parsed.success) {
@@ -84,8 +82,35 @@ export async function POST(req: Request) {
   }
   const data = parsed.data;
 
+  // In production, never spend the owner's server key from a fully unprotected
+  // deploy: with no BYOK key, no Clerk identity, and no Upstash limiter, an
+  // anonymous caller could drain it without limit. Require the caller's own key
+  // in that case. (Skipped in local dev so a server key in .env.local works.)
+  const hasLimiter = !!process.env.UPSTASH_REDIS_REST_URL;
+  if (
+    process.env.NODE_ENV === "production" &&
+    !data.userAPIKey &&
+    !clerkEnabled &&
+    !hasLimiter
+  ) {
+    return new Response(
+      "Add your own Together API key to generate logos here.",
+      { status: 401, headers: { "Content-Type": "text/plain" } },
+    );
+  }
+
+  // Use the caller's own key when supplied, else the server key. Passing it in
+  // the constructor (rather than mutating client.apiKey) is read per request.
+  const options: ConstructorParameters<typeof Together>[0] = {
+    apiKey: data.userAPIKey || process.env.TOGETHER_API_KEY,
+  };
+  if (!options.apiKey) {
+    return new Response("No API key available.", {
+      status: 401,
+      headers: { "Content-Type": "text/plain" },
+    });
+  }
   // Add observability if a Helicone key is specified, otherwise skip
-  const options: ConstructorParameters<typeof Together>[0] = {};
   if (process.env.HELICONE_API_KEY) {
     options.baseURL = "https://together.helicone.ai/v1";
     options.defaultHeaders = {
@@ -94,8 +119,10 @@ export async function POST(req: Request) {
     };
   }
 
-  // Add rate limiting if Upstash API keys are set & no BYOK, otherwise skip
-  if (process.env.UPSTASH_REDIS_REST_URL && !data.userAPIKey) {
+  // Add rate limiting if Upstash API keys are set & no BYOK, otherwise skip.
+  // Function-local so the limiter never leaks across requests.
+  let ratelimit: Ratelimit | undefined;
+  if (hasLimiter && !data.userAPIKey) {
     ratelimit = new Ratelimit({
       redis: Redis.fromEnv(),
       // Allow 3 requests per 2 months on prod
@@ -107,19 +134,19 @@ export async function POST(req: Request) {
 
   const client = new Together(options);
 
-  if (data.userAPIKey) {
-    client.apiKey = data.userAPIKey;
-    if (clerkEnabled && user) {
-      (await clerkClient()).users.updateUserMetadata(user.id, {
-        unsafeMetadata: {
-          remaining: "BYOK",
-        },
-      });
-    }
+  if (data.userAPIKey && clerkEnabled && user) {
+    (await clerkClient()).users.updateUserMetadata(user.id, {
+      unsafeMetadata: { remaining: "BYOK" },
+    });
   }
 
   if (ratelimit) {
-    const identifier = user?.id ?? "anonymous";
+    // Key anonymous callers by client IP so they don't all share one bucket.
+    const ip =
+      req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+      req.headers.get("x-real-ip") ||
+      "anonymous";
+    const identifier = user?.id ?? ip;
     const { success, remaining } = await ratelimit.limit(identifier);
     if (clerkEnabled && user) {
       (await clerkClient()).users.updateUserMetadata(user.id, {
@@ -232,9 +259,9 @@ export async function POST(req: Request) {
       model: "black-forest-labs/FLUX.2-pro",
       width: 1024,
       height: 1024,
-      response_format: "base64",
+      response_format: "base64" as const,
     };
-    const response = await client.images.create(body);
+    const response = await client.images.generate(body);
     return Response.json(response.data[0], { status: 200 });
   } catch (error) {
     const invalidApiKey = z

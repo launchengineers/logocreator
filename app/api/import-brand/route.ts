@@ -1,4 +1,5 @@
 import { z } from "zod";
+import dns from "node:dns/promises";
 
 // Pulls a brand's name, accent color and existing logo from a website URL so the
 // creator can pre-fill the form and design a fresh logo in their colors. Pure
@@ -38,6 +39,58 @@ function isBlockedHost(hostname: string): boolean {
   return false;
 }
 
+// Reject IPs in loopback / private / link-local / metadata ranges, including
+// IPv4-mapped IPv6 forms, so a hostname that resolves to an internal address
+// cannot slip past the string check above.
+function isBlockedIp(ip: string): boolean {
+  const h = ip.toLowerCase().trim().replace(/^\[|\]$/g, "");
+  const mapped = h.match(/^::ffff:(.+)$/);
+  if (mapped) {
+    const rest = mapped[1];
+    if (/^\d{1,3}(\.\d{1,3}){3}$/.test(rest)) return isBlockedIp(rest);
+    const hx = rest.match(/^([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
+    if (hx) {
+      const a = parseInt(hx[1], 16);
+      const b = parseInt(hx[2], 16);
+      return isBlockedIp(
+        `${(a >> 8) & 255}.${a & 255}.${(b >> 8) & 255}.${b & 255}`,
+      );
+    }
+  }
+  const m = h.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (m) {
+    const a = Number(m[1]);
+    const b = Number(m[2]);
+    if (a === 0 || a === 10 || a === 127) return true;
+    if (a === 169 && b === 254) return true;
+    if (a === 172 && b >= 16 && b <= 31) return true;
+    if (a === 192 && b === 168) return true;
+    if (a >= 224) return true; // multicast + reserved
+    return false;
+  }
+  if (h === "::1" || h === "::") return true;
+  if (h.startsWith("fc") || h.startsWith("fd")) return true; // unique-local
+  if (h.startsWith("fe80")) return true; // link-local
+  return false;
+}
+
+// Resolve a hostname and confirm EVERY address it maps to is public. This is
+// what defeats DNS-rebinding: a public-looking host whose A record points at an
+// internal IP is rejected before we ever connect to it.
+async function isPublicHost(hostname: string): Promise<boolean> {
+  const h = hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  if (isBlockedHost(h)) return false;
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(h) || h.includes(":")) {
+    return !isBlockedIp(h);
+  }
+  try {
+    const addrs = await dns.lookup(h, { all: true });
+    return addrs.length > 0 && addrs.every((a) => !isBlockedIp(a.address));
+  } catch {
+    return false;
+  }
+}
+
 function normalizeUrl(input: string): URL | null {
   let raw = input.trim();
   if (!raw) return null;
@@ -52,23 +105,40 @@ function normalizeUrl(input: string): URL | null {
   }
 }
 
-async function fetchWithTimeout(url: string, ms: number, asText: boolean) {
-  const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), ms);
-  try {
-    return await fetch(url, {
-      signal: ctrl.signal,
-      redirect: "follow",
-      headers: {
-        // Some sites serve minimal HTML to non-browser agents.
-        "User-Agent":
-          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
-        Accept: asText ? "text/html,application/xhtml+xml" : "image/*,*/*",
-      },
-    });
-  } finally {
-    clearTimeout(t);
+// Fetch with a timeout that follows redirects MANUALLY, re-validating the host
+// (via DNS resolution) at every hop, so a redirect cannot bounce us onto an
+// internal address. Throws "blocked host" if any hop resolves to a private IP.
+async function safeFetch(start: string, ms: number, asText: boolean) {
+  let url = start;
+  for (let hop = 0; hop < 4; hop++) {
+    if (!(await isPublicHost(new URL(url).hostname))) {
+      throw new Error("blocked host");
+    }
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), ms);
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        signal: ctrl.signal,
+        redirect: "manual",
+        headers: {
+          // Some sites serve minimal HTML to non-browser agents.
+          "User-Agent":
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+          Accept: asText ? "text/html,application/xhtml+xml" : "image/*,*/*",
+        },
+      });
+    } finally {
+      clearTimeout(t);
+    }
+    const loc = res.headers.get("location");
+    if (res.status >= 300 && res.status < 400 && loc) {
+      url = new URL(loc, url).href;
+      continue;
+    }
+    return res;
   }
+  throw new Error("too many redirects");
 }
 
 // Read at most `cap` bytes from a response body (defends against huge pages).
@@ -173,23 +243,18 @@ export async function POST(req: Request) {
 
   let res: Response;
   try {
-    res = await fetchWithTimeout(url.href, FETCH_TIMEOUT, true);
-  } catch {
-    return new Response("Couldn't reach that site. Check the URL and try again.", {
-      status: 502,
-      headers: { "Content-Type": "text/plain" },
-    });
-  }
-  // Re-check the host after any redirects (defeats redirect-to-internal SSRF).
-  try {
-    if (isBlockedHost(new URL(res.url).hostname)) {
+    res = await safeFetch(url.href, FETCH_TIMEOUT, true);
+  } catch (e) {
+    if (String((e as Error)?.message).includes("blocked")) {
       return new Response("That URL isn't allowed.", {
         status: 400,
         headers: { "Content-Type": "text/plain" },
       });
     }
-  } catch {
-    /* keep going with the original host */
+    return new Response(
+      "Couldn't reach that site. Check the URL and try again.",
+      { status: 502, headers: { "Content-Type": "text/plain" } },
+    );
   }
   if (!res.ok) {
     return new Response(`That site returned an error (${res.status}).`, {
@@ -240,7 +305,7 @@ export async function POST(req: Request) {
     try {
       const u = new URL(abs);
       if (isBlockedHost(u.hostname)) continue;
-      const imgRes = await fetchWithTimeout(abs, FETCH_TIMEOUT, false);
+      const imgRes = await safeFetch(abs, FETCH_TIMEOUT, false);
       if (!imgRes.ok) continue;
       const ct = (imgRes.headers.get("content-type") || "").split(";")[0].trim();
       if (!ct.startsWith("image/")) continue;

@@ -33,8 +33,15 @@ Return only the JSON object.`;
 export async function POST(req: Request) {
   const parsed = z
     .object({
-      userAPIKey: z.string().optional(),
-      image: z.string(), // data URL
+      userAPIKey: z.string().max(200).optional(),
+      // Only an inline image data URL, never an arbitrary http/file URL (which
+      // the model backend would otherwise fetch server-side on our behalf).
+      image: z
+        .string()
+        .regex(
+          /^data:image\/[a-zA-Z0-9.+-]+;base64,/,
+          "Provide an image data URL.",
+        ),
     })
     .safeParse(await req.json().catch(() => null));
   if (!parsed.success) {
@@ -44,6 +51,30 @@ export async function POST(req: Request) {
     });
   }
   const data = parsed.data;
+
+  // Cap payload size (~4 MB image) before forwarding it to the vision model.
+  if (data.image.length > 6_000_000) {
+    return new Response("That image is too large.", {
+      status: 413,
+      headers: { "Content-Type": "text/plain" },
+    });
+  }
+
+  // In production, don't spend the owner's server key from a fully unprotected
+  // deploy (no BYOK, no Clerk, no Upstash limiter). Allowed in local dev.
+  const clerkEnabled = !!process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
+  const hasLimiter = !!process.env.UPSTASH_REDIS_REST_URL;
+  if (
+    process.env.NODE_ENV === "production" &&
+    !data.userAPIKey &&
+    !clerkEnabled &&
+    !hasLimiter
+  ) {
+    return new Response(
+      "Add your own Together API key to read references here.",
+      { status: 401, headers: { "Content-Type": "text/plain" } },
+    );
+  }
 
   const apiKey = data.userAPIKey?.trim() || process.env.TOGETHER_API_KEY;
   if (!apiKey) {
