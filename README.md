@@ -4,7 +4,7 @@
 </a>
 
 <p align="center">
-  An open source logo generator – create professional logos in seconds with customizable styles.
+  An open source logo generator: create professional logos in seconds with customizable styles.
 </p>
 
 ## Tech stack

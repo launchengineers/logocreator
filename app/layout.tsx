@@ -3,6 +3,7 @@ import localFont from "next/font/local";
 import "./globals.css";
 import { ClerkProvider } from "@clerk/nextjs";
 import { Toaster } from "@/app/components/ui/toaster";
+import { TooltipProvider } from "@/app/components/ui/tooltip";
 import { ThemeProvider } from "@/app/components/ThemeProvider";
 import PlausibleProvider from "next-plausible";
 
@@ -18,7 +19,7 @@ const satoshi = localFont({
   fallback: ["ui-sans-serif", "system-ui", "sans-serif"],
 });
 
-const title = "LogoCreator — Generate a logo in seconds";
+const title = "LogoCreator: Generate a logo in seconds";
 const description =
   "Create a clean, professional logo for your brand in seconds. Free and open source.";
 const url = "https://www.logo-creator.io/";
@@ -29,9 +30,6 @@ export const metadata: Metadata = {
   metadataBase: new URL(url),
   title,
   description,
-  icons: {
-    icon: "/favicon.ico",
-  },
   openGraph: {
     images: [ogimage],
     title,
@@ -64,7 +62,6 @@ export default function RootLayout({
     >
       <head>
         <PlausibleProvider domain="logo-creator.io" />
-        <link rel="icon" href="/favicon.ico" sizes="any" />
       </head>
       <body className="min-h-full font-sans">
         <ThemeProvider
@@ -73,7 +70,9 @@ export default function RootLayout({
           enableSystem={false}
           disableTransitionOnChange
         >
-          {children}
+          <TooltipProvider delayDuration={200} skipDelayDuration={300}>
+            {children}
+          </TooltipProvider>
           <Toaster />
         </ThemeProvider>
       </body>

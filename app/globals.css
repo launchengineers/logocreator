@@ -3,7 +3,7 @@
 @tailwind utilities;
 
 /*
-  LogoCreator design system — warm off-white / off-black, one quiet ink-blue accent.
+  LogoCreator design system: warm off-white / off-black, one quiet ink-blue accent.
   Token names mirror shadcn so all primitives keep working; only the values change.
   Light is the default; .dark holds the dark theme.
 */
@@ -17,7 +17,7 @@
     --popover: 0 0% 100%;
     --popover-foreground: 40 8% 9%;
 
-    --primary: 231 45% 51%; /* the one quiet accent — refined ink-blue */
+    --primary: 231 45% 51%; /* the one quiet accent: refined ink-blue */
     --primary-foreground: 0 0% 100%;
 
     --secondary: 45 22% 95%; /* warm light neutral */
@@ -108,7 +108,7 @@
 }
 
 @layer utilities {
-  /* Tiny uppercase field labels — warm geometric reads beautifully in caps */
+  /* Tiny uppercase field labels: warm geometric reads beautifully in caps */
   .label-eyebrow {
     @apply text-[0.6875rem] font-medium uppercase tracking-[0.12em] text-muted-foreground;
   }
@@ -172,5 +172,148 @@
       transparent
     );
     animation: shimmer 1.6s ease-in-out infinite;
+  }
+
+  /* Indeterminate accent sweep, rides on top of the brand-kit progress fill
+     while assets are still rendering, so the bar always feels alive. */
+  @keyframes indeterminate {
+    0% {
+      transform: translateX(-110%);
+    }
+    100% {
+      transform: translateX(380%);
+    }
+  }
+  .indeterminate-bar::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    width: 26%;
+    border-radius: inherit;
+    background: linear-gradient(
+      90deg,
+      transparent,
+      hsl(var(--primary) / 0.6),
+      transparent
+    );
+    animation: indeterminate 1.5s ease-in-out infinite;
+  }
+
+  /* Soft breathing glow for asset tiles that are mid-render. */
+  @keyframes tile-breathe {
+    0%,
+    100% {
+      opacity: 0.5;
+    }
+    50% {
+      opacity: 0.9;
+    }
+  }
+  .animate-tile-breathe {
+    animation: tile-breathe 1.8s ease-in-out infinite;
+  }
+
+  /* Looping marquee rows for the welcome showcase. Each track holds its tiles
+     twice, so translating by -50% loops seamlessly. */
+  @keyframes marquee-left {
+    from {
+      transform: translateX(0);
+    }
+    to {
+      transform: translateX(-50%);
+    }
+  }
+  @keyframes marquee-right {
+    from {
+      transform: translateX(-50%);
+    }
+    to {
+      transform: translateX(0);
+    }
+  }
+  .marquee-track {
+    width: max-content;
+    will-change: transform;
+  }
+  .marquee-left {
+    animation: marquee-left var(--marquee-dur, 44s) linear infinite;
+  }
+  .marquee-right {
+    animation: marquee-right var(--marquee-dur, 44s) linear infinite;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .marquee-left,
+    .marquee-right {
+      animation: none;
+    }
+  }
+}
+
+/*
+  App shell. Mobile reflows to: header → gallery → controls → footer (footer
+  pinned to the bottom). Desktop is the panel-left / gallery-right two-pane.
+*/
+.app-shell {
+  display: grid;
+  grid-template-columns: 1fr;
+  grid-template-rows: auto minmax(13rem, 1fr) auto auto;
+  grid-template-areas:
+    "header"
+    "gallery"
+    "controls"
+    "footer";
+}
+.area-header {
+  grid-area: header;
+}
+.area-gallery {
+  grid-area: gallery;
+}
+.area-controls {
+  grid-area: controls;
+}
+.area-footer {
+  grid-area: footer;
+}
+
+@media (min-width: 768px) {
+  .app-shell {
+    grid-template-columns: 21rem 1fr;
+    grid-template-rows: auto 1fr auto;
+    /* Footer lives at the bottom of the generation column now, so the
+       controls sidebar stretches the full height for more breathing room. */
+    grid-template-areas:
+      "header gallery"
+      "controls gallery"
+      "controls footer";
+  }
+}
+@media (min-width: 1024px) {
+  .app-shell {
+    grid-template-columns: 23.5rem 1fr;
+  }
+}
+
+/*
+  Accessibility: honor the OS "reduce motion" setting. Near-instant durations
+  (not 0) so JS that waits on transition/animation end still fires. Covers CSS
+  spinners, shimmer, breathing dots, marquee, and all transitions.
+*/
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+  /* Exception: keep loading spinners actually spinning. A frozen spinner reads
+     as "stuck" during a long generation, and a steady rotation is not a
+     vestibular trigger the way parallax / zoom / slide motion is. */
+  .spinner-ring,
+  .animate-spin {
+    animation-duration: 0.8s !important;
+    animation-iteration-count: infinite !important;
   }
 }

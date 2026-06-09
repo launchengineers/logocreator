@@ -14,9 +14,7 @@ export default function TogetherCredit({ className }: { className?: string }) {
         className,
       )}
     >
-      <span className="text-[0.625rem] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-        Powered by
-      </span>
+      <span className="text-xs text-muted-foreground">Powered by</span>
       <img
         src="/together-logo-light.png"
         alt="together.ai"

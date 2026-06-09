@@ -1,0 +1,19 @@
+/**
+ * Approximate Together AI costs, shown only to BYOK users so they have a rough
+ * sense of spend. Figures are estimates (verify at together.ai/pricing); the
+ * UI always frames them with "~"/"≈".
+ */
+
+// FLUX.2-pro ≈ $0.03 per 1024² image.
+export const PRICE_PER_LOGO = 0.03;
+
+// FLUX.1-kontext ≈ $0.04 per megapixel (~1 MP per brand-kit asset). The brand
+// kit's only metered work is the AI renders: 5 product mockups, plus up to 4
+// kontext logo lockups for combination marks. The modal derives the live
+// estimate from the actual asset list; everything else is free canvas work.
+export const PRICE_PER_AI_ASSET = 0.04;
+
+/** Format a USD amount with sensible precision (e.g. 0.03 → "$0.03"). */
+export function formatUsd(amount: number): string {
+  return `$${amount.toFixed(2)}`;
+}

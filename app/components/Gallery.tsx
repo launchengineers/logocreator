@@ -2,8 +2,10 @@
 
 import Image from "next/image";
 import { AnimatePresence, motion } from "framer-motion";
-import { Download, RefreshCw } from "lucide-react";
+import { Download, RefreshCw, Sparkles, Star } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { slugify } from "@/app/lib/brand-kit";
+import { Tip } from "./ui/tooltip";
 import { LogoMark } from "./Logo";
 
 export type GenParams = {
@@ -15,6 +17,7 @@ export type GenParams = {
   detailLevel: string;
   monochrome: boolean;
   additionalInfo: string;
+  referenceDescription?: string;
 };
 
 export type Generation = {
@@ -22,6 +25,9 @@ export type Generation = {
   image: string;
   companyName: string;
   params: GenParams;
+  createdAt?: number;
+  favorite?: boolean;
+  name?: string; // user-given label, overrides companyName for display
 };
 
 const EASE = [0.22, 1, 0.36, 1] as const;
@@ -47,13 +53,17 @@ function SkeletonCell() {
 function GenerationCell({
   gen,
   index,
-  onRegenerate,
+  onVary,
   onOpen,
+  onCreateBrandKit,
+  onToggleFavorite,
 }: {
   gen: Generation;
   index: number;
-  onRegenerate: (gen: Generation) => void;
+  onVary: (gen: Generation) => void;
   onOpen: (gen: Generation) => void;
+  onCreateBrandKit: (gen: Generation) => void;
+  onToggleFavorite: (gen: Generation) => void;
 }) {
   return (
     <motion.div
@@ -63,7 +73,16 @@ function GenerationCell({
       exit={{ opacity: 0, scale: 0.94 }}
       transition={{ duration: 0.38, ease: EASE, delay: Math.min(index, 6) * 0.035 }}
       onClick={() => onOpen(gen)}
-      className="group relative aspect-square cursor-pointer overflow-hidden rounded-2xl border border-border bg-card"
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onOpen(gen);
+        }
+      }}
+      role="button"
+      tabIndex={0}
+      aria-label={`Open ${gen.companyName || "logo"}`}
+      className="group relative aspect-square cursor-pointer overflow-hidden rounded-2xl border border-border bg-card outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
     >
       <Image
         src={gen.image}
@@ -74,30 +93,66 @@ function GenerationCell({
         priority={index < 3}
         className="h-full w-full object-cover transition-transform duration-500 ease-out group-hover:scale-[1.04]"
       />
-      <div className="pointer-events-none absolute inset-0 flex items-end justify-center bg-gradient-to-t from-black/45 via-black/0 to-transparent opacity-0 transition-opacity duration-200 group-hover:opacity-100">
+      {/* Favorite star: always visible when favorited, else on hover/focus */}
+      <Tip label={gen.favorite ? "Remove from favorites" : "Add to favorites"} side="right">
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggleFavorite(gen);
+          }}
+          aria-label={gen.favorite ? "Remove from favorites" : "Add to favorites"}
+          aria-pressed={!!gen.favorite}
+          className={cn(
+            "absolute left-2 top-2 z-10 flex size-7 items-center justify-center rounded-full border bg-black/45 backdrop-blur-md outline-none transition-all duration-200 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-white/60",
+            gen.favorite
+              ? "border-amber-300/40 text-amber-300 opacity-100"
+              : "border-white/15 text-white/85 opacity-0 hover:text-white group-hover:opacity-100 group-focus-within:opacity-100",
+          )}
+        >
+          <Star className={cn("size-3.5", gen.favorite && "fill-amber-300")} />
+        </button>
+      </Tip>
+      {/* Revealed on hover OR keyboard focus (focus-within) */}
+      <div className="pointer-events-none absolute inset-0 flex items-end justify-center bg-gradient-to-t from-black/45 via-black/0 to-transparent opacity-0 transition-opacity duration-200 group-hover:opacity-100 group-focus-within:opacity-100">
         <div className="pointer-events-auto mb-3 flex items-center gap-0.5 rounded-full border border-white/15 bg-black/55 p-1 backdrop-blur-md">
-          <a
-            href={gen.image}
-            download={`${slugify(gen.companyName)}.png`}
-            onClick={(e) => e.stopPropagation()}
-            aria-label="Download PNG"
-            title="Download PNG"
-            className="flex size-8 items-center justify-center rounded-full text-white/90 transition-colors hover:bg-white/15"
-          >
-            <Download className="size-4" />
-          </a>
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onRegenerate(gen);
-            }}
-            aria-label="Regenerate this logo"
-            title="Regenerate"
-            className="flex size-8 items-center justify-center rounded-full text-white/90 transition-colors hover:bg-white/15"
-          >
-            <RefreshCw className="size-4" />
-          </button>
+          <Tip label="Download PNG">
+            <a
+              href={gen.image}
+              download={`${slugify(gen.companyName)}.png`}
+              onClick={(e) => e.stopPropagation()}
+              aria-label="Download PNG"
+              className="flex size-8 items-center justify-center rounded-full text-white/90 outline-none transition-colors hover:bg-white/15 focus-visible:bg-white/20 focus-visible:ring-2 focus-visible:ring-white/60"
+            >
+              <Download className="size-4" />
+            </a>
+          </Tip>
+          <Tip label="Create brand kit">
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onCreateBrandKit(gen);
+              }}
+              aria-label="Create brand kit"
+              className="flex size-8 items-center justify-center rounded-full text-white/90 outline-none transition-colors hover:bg-white/15 focus-visible:bg-white/20 focus-visible:ring-2 focus-visible:ring-white/60"
+            >
+              <Sparkles className="size-4" />
+            </button>
+          </Tip>
+          <Tip label="Make variations">
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onVary(gen);
+              }}
+              aria-label="Make variations of this logo"
+              className="flex size-8 items-center justify-center rounded-full text-white/90 outline-none transition-colors hover:bg-white/15 focus-visible:bg-white/20 focus-visible:ring-2 focus-visible:ring-white/60"
+            >
+              <RefreshCw className="size-4" />
+            </button>
+          </Tip>
         </div>
       </div>
     </motion.div>
@@ -106,16 +161,20 @@ function GenerationCell({
 
 export default function Gallery({
   generations,
-  isLoading,
-  onRegenerate,
+  pendingCount,
+  onVary,
   onOpen,
+  onCreateBrandKit,
+  onToggleFavorite,
 }: {
   generations: Generation[];
-  isLoading: boolean;
-  onRegenerate: (gen: Generation) => void;
+  pendingCount: number;
+  onVary: (gen: Generation) => void;
   onOpen: (gen: Generation) => void;
+  onCreateBrandKit: (gen: Generation) => void;
+  onToggleFavorite: (gen: Generation) => void;
 }) {
-  if (generations.length === 0 && !isLoading) {
+  if (generations.length === 0 && pendingCount === 0) {
     return (
       <div className="flex h-full min-h-[16rem] flex-col items-center justify-center px-8 py-16 text-center">
         <LogoMark className="size-12 animate-pulse-soft opacity-25" />
@@ -123,8 +182,8 @@ export default function Gallery({
           Your logos will appear here
         </h2>
         <p className="mt-1.5 max-w-xs text-pretty text-sm text-muted-foreground">
-          Fill in the details, hit Generate, and every logo you make stacks up
-          right here.
+          Pick a Quick-start template or fill in the details, hit Generate, and
+          every logo you make stacks up right here.
         </p>
       </div>
     );
@@ -133,14 +192,18 @@ export default function Gallery({
   return (
     <div className="grid grid-cols-2 gap-3.5 p-5 sm:gap-4 sm:p-6 lg:grid-cols-3">
       <AnimatePresence initial={false}>
-        {isLoading && <SkeletonCell key="skeleton" />}
+        {Array.from({ length: pendingCount }, (_, i) => (
+          <SkeletonCell key={`skeleton-${i}`} />
+        ))}
         {generations.map((gen, i) => (
           <GenerationCell
             key={gen.id}
             gen={gen}
             index={i}
-            onRegenerate={onRegenerate}
+            onVary={onVary}
             onOpen={onOpen}
+            onCreateBrandKit={onCreateBrandKit}
+            onToggleFavorite={onToggleFavorite}
           />
         ))}
       </AnimatePresence>

@@ -1,0 +1,89 @@
+import ImageTracer from "imagetracerjs";
+import { loadImage } from "./brand-kit";
+
+/**
+ * Vectorize a (flat, limited-color) raster logo to an SVG string by tracing it
+ * on-device with imagetracerjs. Tuned for clean logo art: a small color count,
+ * speckle removal, fills-only (no strokes), and a light blur to tame the JPEG/AA
+ * edges. This is an auto-trace, not a hand-redraw: good enough for scalable
+ * exports of these flat marks.
+ */
+const LOGO_TRACE_OPTS = {
+  numberofcolors: 10,
+  colorquantcycles: 3,
+  mincolorratio: 0,
+  pathomit: 24, // drop tiny paths, kills background speckle
+  ltres: 1,
+  qtres: 1,
+  strokewidth: 0,
+  linefilter: true,
+  roundcoords: 2,
+  blurradius: 2,
+  blurdelta: 20,
+};
+
+/**
+ * Flatten a near-uniform background to one exact color before tracing. FLUX
+ * outputs a "white" background that's actually full of faint noise, which the
+ * tracer would otherwise turn into hundreds of tiny speckle paths. Snapping
+ * every pixel within tolerance of the corner-sampled background to that single
+ * color collapses it into one clean region.
+ */
+function flattenBackground(ctx: CanvasRenderingContext2D, w: number, h: number) {
+  const image = ctx.getImageData(0, 0, w, h);
+  const d = image.data;
+  const corners = [0, (w - 1) * 4, (h - 1) * w * 4, (h * w - 1) * 4];
+  let br = 0,
+    bg = 0,
+    bb = 0;
+  for (const c of corners) {
+    br += d[c];
+    bg += d[c + 1];
+    bb += d[c + 2];
+  }
+  br = Math.round(br / 4);
+  bg = Math.round(bg / 4);
+  bb = Math.round(bb / 4);
+  const tol = 60 * 3; // generous: noisy "white" varies a fair bit
+  for (let i = 0; i < d.length; i += 4) {
+    if (d[i + 3] < 24) {
+      // transparent → treat as the flat background too
+      d[i] = br;
+      d[i + 1] = bg;
+      d[i + 2] = bb;
+      d[i + 3] = 255;
+      continue;
+    }
+    const dist =
+      Math.abs(d[i] - br) + Math.abs(d[i + 1] - bg) + Math.abs(d[i + 2] - bb);
+    if (dist < tol) {
+      d[i] = br;
+      d[i + 1] = bg;
+      d[i + 2] = bb;
+    }
+  }
+  ctx.putImageData(image, 0, 0);
+}
+
+export async function logoToSvgString(src: string): Promise<string> {
+  const img = await loadImage(src);
+  const w = img.naturalWidth || img.width;
+  const h = img.naturalHeight || img.height;
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("Canvas unavailable");
+  // Opaque white base so transparent inputs flatten cleanly.
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, w, h);
+  ctx.drawImage(img, 0, 0, w, h);
+  flattenBackground(ctx, w, h);
+  const imgdata = ctx.getImageData(0, 0, w, h);
+  return ImageTracer.imagedataToSVG(imgdata, LOGO_TRACE_OPTS);
+}
+
+export async function logoToSvgBlob(src: string): Promise<Blob> {
+  const svg = await logoToSvgString(src);
+  return new Blob([svg], { type: "image/svg+xml" });
+}

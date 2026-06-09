@@ -10,9 +10,10 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/app/components/ui/dialog";
-import { Input } from "@/app/components/ui/input";
 import { Button } from "@/app/components/ui/button";
+import { Tip } from "@/app/components/ui/tooltip";
 import { toast } from "@/hooks/use-toast";
+import ApiKeyForm from "./ApiKeyForm";
 
 export default function ApiKeyDialog({
   open,
@@ -48,24 +49,35 @@ export default function ApiKeyDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogTrigger asChild>
-        <button
-          type="button"
-          aria-label="Together API key"
-          className="relative flex size-9 items-center justify-center rounded-full border border-border/70 text-muted-foreground transition-colors hover:border-border hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-        >
-          <KeyRound className="size-[1.05rem]" />
-          {hasKey && (
-            <span className="absolute -right-0.5 -top-0.5 size-2.5 rounded-full border-2 border-background bg-primary" />
-          )}
-          {outOfCredits && (
-            <span className="absolute -right-0.5 -top-0.5 flex size-2.5">
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-400 opacity-75" />
-              <span className="relative inline-flex size-2.5 rounded-full border-2 border-background bg-amber-400" />
-            </span>
-          )}
-        </button>
-      </DialogTrigger>
+      <Tip
+        label={
+          outOfCredits
+            ? "Out of credits, add a key"
+            : hasKey
+              ? "Your API key"
+              : "Add API key"
+        }
+        side="bottom"
+      >
+        <DialogTrigger asChild>
+          <button
+            type="button"
+            aria-label="Together API key"
+            className="relative flex size-9 items-center justify-center rounded-full border border-border/70 text-muted-foreground transition-colors hover:border-border hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+          >
+            <KeyRound className="size-[1.05rem]" />
+            {hasKey && (
+              <span className="absolute -right-0.5 -top-0.5 size-2.5 rounded-full border-2 border-background bg-primary" />
+            )}
+            {outOfCredits && (
+              <span className="absolute -right-0.5 -top-0.5 flex size-2.5">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-400 opacity-75" />
+                <span className="relative inline-flex size-2.5 rounded-full border-2 border-background bg-amber-400" />
+              </span>
+            )}
+          </button>
+        </DialogTrigger>
+      </Tip>
 
       <DialogContent className="max-w-md gap-5 rounded-2xl">
         <DialogHeader>
@@ -74,36 +86,12 @@ export default function ApiKeyDialog({
           </DialogTitle>
           <DialogDescription className="leading-relaxed">
             {outOfCredits
-              ? "Add your own Together AI key to keep generating — it's free to get and stored only in your browser."
-              : "Optional — add your own Together AI key for unlimited generations. Stored only in your browser."}
+              ? "Add your own Together AI key to keep generating. It's free to get and stored only in your browser."
+              : "Optional: add your own Together AI key for unlimited generations. Stored only in your browser."}
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-2.5">
-          <Input
-            type="password"
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                save();
-              }
-            }}
-            placeholder="Paste your API key"
-            autoComplete="off"
-            spellCheck={false}
-            autoFocus
-          />
-          <a
-            href="https://api.together.xyz/settings/api-keys"
-            target="_blank"
-            rel="noreferrer"
-            className="inline-block text-xs text-muted-foreground underline decoration-border underline-offset-4 transition-colors hover:text-foreground"
-          >
-            Get a free key from Together AI →
-          </a>
-        </div>
+        <ApiKeyForm value={draft} onChange={setDraft} onSubmit={save} autoFocus />
 
         <div className="flex items-center gap-2">
           {hasKey && (
