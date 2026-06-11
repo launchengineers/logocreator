@@ -176,8 +176,15 @@ const logoStyles = [
   { name: "3D", frames: styleFrames("3d") },
 ];
 
-function randomStyleName(): string {
-  return logoStyles[Math.floor(Math.random() * logoStyles.length)].name;
+// All 8 style names in random order, for "Surprise me" runs where each
+// variation should land in a DIFFERENT style (distinct while n <= 8).
+function shuffledStyleNames(): string[] {
+  const names = logoStyles.map((s) => s.name);
+  for (let i = names.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [names[i], names[j]] = [names[j], names[i]];
+  }
+  return names;
 }
 
 const primaryColors = [
@@ -282,6 +289,11 @@ export default function Page() {
   const quotaWarnedRef = useRef(false); // warn once if on-device storage fills
   const refReqRef = useRef(0); // cancels a stale reference-read response
   const importReqRef = useRef(0); // cancels a stale brand-import response
+  // Bumped on every MANUAL style/color pick. A slow vision read (~25s) only
+  // auto-applies its detected style/color if the user hasn't touched that
+  // control since the upload started: manual intent always wins.
+  const styleTouchRef = useRef(0);
+  const colorTouchRef = useRef(0);
   // Synchronous single-flight guards. A React state flag (isGenerating/isEditing)
   // updates too late to stop a fast double-click, which would double-charge a
   // free credit and spawn phantom skeletons; a ref flips immediately.
@@ -316,13 +328,13 @@ export default function Page() {
     // survives React StrictMode's double-invoke so we don't duplicate them).
     if (!historyLoadedRef.current) {
       historyLoadedRef.current = true;
-      getAllLogos()
+      // Only hydrate the most recent window (each record costs a Blob in
+      // memory + an object URL + a mounted cell); older logos stay in
+      // IndexedDB without ever being read.
+      getAllLogos(60)
         .then((recs) => {
           if (!recs.length) return;
-          // Only hydrate the most recent window into the live gallery (each one
-          // costs a multi-MB blob object URL + a mounted cell); the full set
-          // stays in IndexedDB and is browsable in the History dashboard.
-          const restored: Generation[] = recs.slice(0, 60).map((r) => ({
+          const restored: Generation[] = recs.map((r) => ({
             id: r.id,
             image: URL.createObjectURL(r.blob),
             companyName: r.companyName,
@@ -427,7 +439,12 @@ export default function Page() {
       if (res.ok) {
         const json = await res.json();
         const id = newId();
-        const image = `data:image/png;base64,${json.b64_json}`;
+        // Decode once to a Blob and keep a small object URL in state, not the
+        // multi-MB base64 string (which would sit on the JS heap all session).
+        const blob = await (
+          await fetch(`data:image/png;base64,${json.b64_json}`)
+        ).blob();
+        const image = URL.createObjectURL(blob);
         const createdAt = Date.now();
         setGenerations((prev) => [
           { id, image, companyName: params.companyName, params, createdAt },
@@ -439,12 +456,13 @@ export default function Page() {
           chargedRef.current = true;
           adjustCredits(-1);
         }
-        const savePromise = fetch(image)
-          .then((r) => r.blob())
-          .then((blob) =>
-            saveLogo({ id, companyName: params.companyName, params, createdAt, blob }),
-          )
-          .catch(onPersistError);
+        const savePromise = saveLogo({
+          id,
+          companyName: params.companyName,
+          params,
+          createdAt,
+          blob,
+        }).catch(onPersistError);
         savePromises.current.set(id, savePromise);
         return { ok: true };
       }
@@ -471,9 +489,20 @@ export default function Page() {
       setPendingCount(n);
       setLiveMessage(n > 1 ? `Generating ${n} logos…` : "Generating a logo…");
 
+      // "Surprise me" resolves to a concrete random style PER variation (each
+      // of the 4 gets a different style, not 4 logos of one random style).
+      // Every generation stores its own resolved params, so Redo/Vary on a
+      // result reproduces that result's actual style.
+      const isSurprise = params.selectedStyle === SURPRISE_STYLE;
+      const stylePool = isSurprise ? shuffledStyleNames() : [];
+      const paramsFor = (i: number): GenParams =>
+        isSurprise
+          ? { ...params, selectedStyle: stylePool[i % stylePool.length] }
+          : params;
+
       const results = await Promise.all(
-        Array.from({ length: n }, () =>
-          generateOne(params).finally(() =>
+        Array.from({ length: n }, (_, i) =>
+          generateOne(paramsFor(i)).finally(() =>
             setPendingCount((c) => Math.max(0, c - 1)),
           ),
         ),
@@ -533,12 +562,20 @@ export default function Page() {
       const json = await editWithRetry({
         userAPIKey,
         image: sourceImage,
-        prompt: text,
+        // A light preservation frame: without it, a vague "make it bolder" can
+        // make kontext redraw the whole mark, shift colors, or invent text.
+        // Kept short so the user's intent stays dominant; the raw text is what
+        // gets stored on the result's params.
+        prompt: `${text}. Keep the same overall logo identity, colors and letterforms unless this instruction explicitly changes them. Output on a clean flat background and add no extra text.`,
         width: 1024,
         height: 1024,
       });
       const id = newId();
-      const image = `data:image/png;base64,${json.b64_json}`;
+      // Same as generateOne: keep a Blob + object URL, not a base64 string.
+      const blob = await (
+        await fetch(`data:image/png;base64,${json.b64_json}`)
+      ).blob();
+      const image = URL.createObjectURL(blob);
       const createdAt = Date.now();
       const params: GenParams = { ...gen.params, additionalInfo: text };
       const next: Generation = {
@@ -549,12 +586,13 @@ export default function Page() {
         createdAt,
       };
       setGenerations((prev) => [next, ...prev]);
-      const savePromise = fetch(image)
-        .then((r) => r.blob())
-        .then((blob) =>
-          saveLogo({ id, companyName: gen.companyName, params, createdAt, blob }),
-        )
-        .catch(onPersistError);
+      const savePromise = saveLogo({
+        id,
+        companyName: gen.companyName,
+        params,
+        createdAt,
+        blob,
+      }).catch(onPersistError);
       savePromises.current.set(id, savePromise);
       if (!hasOwnKey) adjustCredits(-1);
       setActiveGen(next); // keep the lightbox on the new result to iterate
@@ -581,10 +619,9 @@ export default function Page() {
   function currentParams(): GenParams {
     return {
       companyName,
-      // "Surprise me" resolves to a concrete random style per generation, so
-      // each run is a real, varied style (and the lightbox shows which).
-      selectedStyle:
-        selectedStyle === SURPRISE_STYLE ? randomStyleName() : selectedStyle,
+      // SURPRISE_STYLE passes through unresolved; runBatch rolls a distinct
+      // random style per variation (and the lightbox shows the resolved one).
+      selectedStyle,
       logoType,
       primaryColor,
       backgroundColor,
@@ -596,6 +633,7 @@ export default function Page() {
   }
 
   // "I'm feeling lucky": random style + AI-chosen color, generate immediately.
+  // SURPRISE_STYLE rides through so runBatch rolls a fresh style per variation.
   function handleLucky() {
     if (runningRef.current) return;
     setSelectedStyle(SURPRISE_STYLE);
@@ -605,7 +643,7 @@ export default function Page() {
       {
         companyName,
         logoType,
-        selectedStyle: randomStyleName(),
+        selectedStyle: SURPRISE_STYLE,
         primaryColor: "auto",
         backgroundColor,
         detailLevel,
@@ -719,6 +757,14 @@ export default function Page() {
     // (otherwise a slow vision response could clobber a newer/removed reference).
     const myReq = ++refReqRef.current;
     const stale = () => myReq !== refReqRef.current;
+    // Snapshot the manual-pick counters: the auto-apply below only fires if
+    // the user hasn't re-picked that control while we were reading.
+    const styleTouchAtStart = styleTouchRef.current;
+    const colorTouchAtStart = colorTouchRef.current;
+
+    // Show the busy state IMMEDIATELY: reading + rasterizing a 5 MB file takes
+    // a beat, and silence here makes people click the dropzone again.
+    setRefStatus("reading");
 
     const rawDataUrl = await new Promise<string>((resolve, reject) => {
       const fr = new FileReader();
@@ -727,9 +773,19 @@ export default function Page() {
       fr.readAsDataURL(file);
     }).catch(() => "");
     if (!rawDataUrl) {
+      if (!stale()) setRefStatus(reference ? "ready" : "idle");
       toast({ variant: "destructive", title: "Couldn't read that file" });
       return;
     }
+    // Thumbnail appears as soon as the bytes are read, while the (slower)
+    // rasterize + vision phases continue behind the spinner.
+    if (stale()) return;
+    setReference({
+      dataUrl: rawDataUrl,
+      description: "",
+      styleGuess: null,
+      dominantColor: "auto",
+    });
 
     // Rasterize SVG (on white) and downscale large rasters to ≤1024px long edge.
     let dataUrl = rawDataUrl;
@@ -767,7 +823,6 @@ export default function Page() {
       styleGuess: null,
       dominantColor: "auto",
     });
-    setRefStatus("reading");
 
     // Reading needs serverless chat access on the Together account; it can also
     // be slow. Time it out so the spinner never hangs, and always leave the form
@@ -804,16 +859,25 @@ export default function Page() {
       });
       setRefStatus("ready");
 
-      // Auto-apply the detected style + color.
-      if (json.styleGuess && logoStyles.some((s) => s.name === json.styleGuess)) {
+      // Auto-apply the detected style + color, UNLESS the user manually
+      // re-picked that control while the read was in flight (manual wins).
+      const styleUntouched = styleTouchRef.current === styleTouchAtStart;
+      const colorUntouched = colorTouchRef.current === colorTouchAtStart;
+      if (
+        styleUntouched &&
+        json.styleGuess &&
+        logoStyles.some((s) => s.name === json.styleGuess)
+      ) {
         setSelectedStyle(json.styleGuess);
       }
-      if (json.dominantColor && json.dominantColor !== "auto") {
+      if (colorUntouched && json.dominantColor && json.dominantColor !== "auto") {
         setPrimaryColor(json.dominantColor);
       }
       const bits = [
-        json.styleGuess,
-        json.dominantColor !== "auto" ? json.dominantColor : null,
+        styleUntouched ? json.styleGuess : null,
+        colorUntouched && json.dominantColor !== "auto"
+          ? json.dominantColor
+          : null,
       ].filter(Boolean);
       toast({
         title: "Reference read",
@@ -853,6 +917,10 @@ export default function Page() {
     setDetailLevel(params.detailLevel);
     setMonochrome(params.monochrome);
     setAdditionalInfo(params.additionalInfo);
+    // Saved params carry no reference image, so loading starts clean: a
+    // leftover active reference would silently blend into the regeneration.
+    handleClearReference();
+    setActivePreset(null);
     if (
       params.monochrome ||
       params.detailLevel !== "Balanced" ||
@@ -957,7 +1025,7 @@ export default function Page() {
 
               <div>
                 <span className="label-eyebrow mb-2 block">Quick start</span>
-                <div className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                <div className="scroll-fade-x -mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1 pr-7 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                   {STARTER_PRESETS.map((p) => {
                     const Icon = p.icon;
                     return (
@@ -998,7 +1066,7 @@ export default function Page() {
               <div>
                 <span className="label-eyebrow mb-2 block">
                   Describe it
-                  <span className="ml-1 lowercase tracking-normal text-muted-foreground/60">
+                  <span className="ml-1 lowercase tracking-normal text-muted-foreground">
                     (optional)
                   </span>
                 </span>
@@ -1011,7 +1079,7 @@ export default function Page() {
                   placeholder="A fox, friendly and modern, with a subtle leaf…"
                 />
                 {additionalInfo.trim() === "" && (
-                  <div className="-mx-1 mt-2 flex gap-1.5 overflow-x-auto px-1 pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                  <div className="scroll-fade-x -mx-1 mt-2 flex gap-1.5 overflow-x-auto px-1 pb-0.5 pr-7 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                     {DESCRIBE_SUGGESTIONS.map((s) => (
                       <button
                         key={s}
@@ -1066,6 +1134,7 @@ export default function Page() {
                   styles={logoStyles}
                   value={selectedStyle}
                   onChange={(v) => {
+                    styleTouchRef.current++;
                     setSelectedStyle(v);
                     setActivePreset(null);
                   }}
@@ -1079,6 +1148,7 @@ export default function Page() {
                     presets={primaryColors}
                     value={primaryColor}
                     onChange={(v) => {
+                      colorTouchRef.current++;
                       setPrimaryColor(v);
                       setActivePreset(null);
                     }}
@@ -1126,7 +1196,7 @@ export default function Page() {
                     )}
                   />
                   Advanced
-                  <span className="ml-1 lowercase tracking-normal text-muted-foreground/60">
+                  <span className="ml-1 lowercase tracking-normal text-muted-foreground">
                     (optional)
                   </span>
                 </button>

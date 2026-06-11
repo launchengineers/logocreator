@@ -55,7 +55,22 @@ export default function ColorSwatches({
 
   const [open, setOpen] = useState(false);
   const [hexDraft, setHexDraft] = useState("");
+  const [hexError, setHexError] = useState(false);
   const popRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+
+  // Close the popover; optionally hand focus back to the "+" trigger (Escape
+  // and pick-a-color do, a plain outside click must not steal pointer focus).
+  function close(restoreFocus: boolean) {
+    setOpen(false);
+    setHexError(false);
+    if (restoreFocus) triggerRef.current?.focus();
+  }
+
+  function pick(hex: string) {
+    onChange(hex);
+    close(true);
+  }
 
   // Close the popover on outside click or Escape.
   useEffect(() => {
@@ -63,9 +78,16 @@ export default function ColorSwatches({
     const onDown = (e: MouseEvent) => {
       if (popRef.current && !popRef.current.contains(e.target as Node)) {
         setOpen(false);
+        setHexError(false);
       }
     };
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setOpen(false);
+        setHexError(false);
+        triggerRef.current?.focus();
+      }
+    };
     document.addEventListener("mousedown", onDown);
     document.addEventListener("keydown", onKey);
     return () => {
@@ -74,19 +96,49 @@ export default function ColorSwatches({
     };
   }, [open]);
 
+  // Keep keyboard focus inside the open popover (it's aria-modal).
+  function trapTab(e: React.KeyboardEvent) {
+    if (e.key !== "Tab") return;
+    const root = popRef.current;
+    if (!root) return;
+    const focusables = Array.from(
+      root.querySelectorAll<HTMLElement>(
+        'button, input, [tabindex]:not([tabindex="-1"])',
+      ),
+    ).filter((el) => !el.hasAttribute("disabled"));
+    if (!focusables.length) return;
+    const first = focusables[0];
+    const last = focusables[focusables.length - 1];
+    if (e.shiftKey && document.activeElement === first) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && document.activeElement === last) {
+      e.preventDefault();
+      first.focus();
+    }
+  }
+
   const ring =
     "ring-offset-2 ring-offset-background transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 
   return (
     <div className="min-w-0">
-      <span className="label-eyebrow mb-2 block">{label}</span>
-      <div className="flex items-center gap-2">
+      <span id={`swatches-${label}`} className="label-eyebrow mb-2 block">
+        {label}
+      </span>
+      {/* Exactly one color is active at a time → radio semantics, not toggles. */}
+      <div
+        role="radiogroup"
+        aria-labelledby={`swatches-${label}`}
+        className="flex items-center gap-2"
+      >
         {/* Auto: let the AI choose a fitting color */}
         <button
           type="button"
-          title="Auto : let AI choose"
-          aria-label={`Auto ${label.toLowerCase()} : let AI choose`}
-          aria-pressed={isAuto}
+          role="radio"
+          title="Auto: let AI choose"
+          aria-label={`Auto ${label.toLowerCase()}: let AI choose`}
+          aria-checked={isAuto}
           onClick={() => onChange(AUTO_COLOR)}
           className={cn(
             "relative flex size-7 items-center justify-center rounded-full bg-secondary",
@@ -108,9 +160,10 @@ export default function ColorSwatches({
             <button
               key={swatch.name}
               type="button"
+              role="radio"
               title={swatch.name}
               aria-label={swatch.name}
-              aria-pressed={selected}
+              aria-checked={selected}
               onClick={() => onChange(swatch.color)}
               style={{ backgroundColor: swatch.color }}
               className={cn(
@@ -132,13 +185,19 @@ export default function ColorSwatches({
         {/* Custom: opens a popover with a curated grid + hex input */}
         <div className="relative" ref={popRef}>
           <button
+            ref={triggerRef}
             type="button"
             title="More colors"
-            aria-label={`Pick a custom ${label.toLowerCase()}`}
+            aria-label={
+              customSelected
+                ? `Custom ${label.toLowerCase()} ${value.toUpperCase()} selected, pick another`
+                : `Pick a custom ${label.toLowerCase()}`
+            }
             aria-haspopup="dialog"
             aria-expanded={open}
             onClick={() => {
               setHexDraft(customSelected ? value.replace(/^#/, "") : "");
+              setHexError(false);
               setOpen((o) => !o);
             }}
             className={cn(
@@ -161,22 +220,27 @@ export default function ColorSwatches({
           {open && (
             <div
               role="dialog"
+              aria-modal="true"
               aria-label={`${label} colors`}
+              onKeyDown={trapTab}
               className="absolute left-0 top-9 z-50 w-56 rounded-xl border border-border bg-popover p-3 shadow-xl"
             >
-              <div className="grid grid-cols-8 gap-1.5">
+              <div
+                role="radiogroup"
+                aria-label={`${label} palette`}
+                className="grid grid-cols-8 gap-1.5"
+              >
                 {PALETTE.map((hex) => {
                   const selected = hex.toLowerCase() === v;
                   return (
                     <button
                       key={hex}
                       type="button"
+                      role="radio"
                       title={hex}
                       aria-label={hex}
-                      onClick={() => {
-                        onChange(hex);
-                        setOpen(false);
-                      }}
+                      aria-checked={selected}
+                      onClick={() => pick(hex)}
                       style={{ backgroundColor: hex }}
                       className={cn(
                         "flex size-5 items-center justify-center rounded-full ring-offset-1 ring-offset-popover",
@@ -197,23 +261,31 @@ export default function ColorSwatches({
               </div>
 
               <div className="mt-3 flex items-center gap-2">
-                <div className="flex flex-1 items-center rounded-lg border border-input bg-background px-2">
+                <div
+                  className={cn(
+                    "flex flex-1 items-center rounded-lg border bg-background px-2",
+                    hexError ? "border-destructive" : "border-input",
+                  )}
+                >
                   <span className="text-sm text-muted-foreground">#</span>
                   <input
                     value={hexDraft}
-                    onChange={(e) => setHexDraft(e.target.value.replace(/[^0-9a-fA-F]/g, "").slice(0, 6))}
+                    onChange={(e) => {
+                      setHexDraft(e.target.value.replace(/[^0-9a-fA-F]/g, "").slice(0, 6));
+                      setHexError(false);
+                    }}
                     onKeyDown={(e) => {
                       if (e.key === "Enter") {
                         e.preventDefault();
                         const norm = normalizeHex(hexDraft);
-                        if (norm) {
-                          onChange(norm);
-                          setOpen(false);
-                        }
+                        if (norm) pick(norm);
+                        else setHexError(true);
                       }
                     }}
                     placeholder="2F6FF5"
                     aria-label={`${label} hex code`}
+                    aria-invalid={hexError}
+                    aria-describedby={hexError ? `hex-error-${label}` : undefined}
                     autoFocus
                     className="w-full bg-transparent py-1.5 text-sm uppercase outline-none placeholder:text-muted-foreground/60"
                   />
@@ -235,6 +307,15 @@ export default function ColorSwatches({
                   />
                 </label>
               </div>
+              {hexError && (
+                <p
+                  id={`hex-error-${label}`}
+                  role="alert"
+                  className="mt-1.5 text-[0.7rem] font-medium text-destructive"
+                >
+                  Enter a 3 or 6 digit hex, then press Enter.
+                </p>
+              )}
             </div>
           )}
         </div>

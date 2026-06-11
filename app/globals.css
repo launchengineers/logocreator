@@ -231,6 +231,24 @@
       transform: translateX(0);
     }
   }
+  /* Horizontal chip scrollers hide their scrollbar, so fade the right edge as
+     the cue that more chips live off-screen (the trailing padding keeps the
+     last chip clear of the fade once scrolled to the end). */
+  .scroll-fade-x {
+    mask-image: linear-gradient(
+      to right,
+      black 0,
+      black calc(100% - 1.5rem),
+      transparent 100%
+    );
+    -webkit-mask-image: linear-gradient(
+      to right,
+      black 0,
+      black calc(100% - 1.5rem),
+      transparent 100%
+    );
+  }
+
   .marquee-track {
     width: max-content;
     will-change: transform;

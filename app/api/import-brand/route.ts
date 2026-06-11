@@ -319,6 +319,15 @@ export async function POST(req: Request) {
     }
   }
 
+  // Nothing usable at all (no name, no theme color, no fetchable icon): say so
+  // instead of returning a 200 the client renders as a silent no-op "success".
+  if (!name && !themeColor && !logoDataUrl) {
+    return new Response(
+      "Couldn't find brand details on that site. Try uploading your logo instead.",
+      { status: 422, headers: { "Content-Type": "text/plain" } },
+    );
+  }
+
   return Response.json({
     name: name || null,
     themeColor,

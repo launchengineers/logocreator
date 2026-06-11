@@ -134,9 +134,13 @@ export default function GenerationModal({
     if (ok) setEditText("");
   }
 
-  function applyQuick(prompt: string) {
+  async function applyQuick(prompt: string) {
     if (!gen || editing) return;
-    onEdit(gen, prompt);
+    // Never silently drop typed text: a chip click while the composer has an
+    // instruction runs BOTH (typed intent first, then the chip's tweak).
+    const typed = editText.trim();
+    const ok = await onEdit(gen, typed ? `${typed}. ${prompt}` : prompt);
+    if (ok && typed) setEditText("");
   }
 
   async function handleSvg() {
@@ -163,7 +167,7 @@ export default function GenerationModal({
       {gen && (
         <DialogContent className="max-w-[min(96vw,68rem)] gap-0 overflow-hidden rounded-2xl border-border p-0 sm:rounded-2xl">
           <DialogTitle className="sr-only">
-            {gen.companyName || "Generated logo"}
+            {gen.name || gen.companyName || "Generated logo"}
           </DialogTitle>
           <DialogDescription className="sr-only">
             Large preview and actions for this generated logo, including AI edits.
@@ -189,7 +193,7 @@ export default function GenerationModal({
                   height={1024}
                   unoptimized
                   priority
-                  className="h-full w-full object-cover"
+                  className="h-full w-full object-contain"
                 />
                 {editing && (
                   <div className="absolute inset-0 flex flex-col items-center justify-center gap-2.5 rounded-2xl bg-background/75 backdrop-blur-sm">
@@ -241,10 +245,14 @@ export default function GenerationModal({
                       if (e.key === "Enter") e.currentTarget.blur();
                     }}
                     aria-label="Logo name (click to rename)"
+                    aria-describedby="rename-hint"
                     title="Click to rename"
                     placeholder="Untitled"
                     className="-mx-1.5 w-full truncate rounded-md bg-transparent px-1.5 py-0.5 text-xl font-bold text-foreground outline-none transition-colors hover:bg-muted/50 focus:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring"
                   />
+                  <span id="rename-hint" className="sr-only">
+                    Press Enter to save the new name.
+                  </span>
                 </div>
                 <p className="label-eyebrow mt-1.5">
                   {typeLabel(gen.params.logoType)}
@@ -298,7 +306,7 @@ export default function GenerationModal({
                         )
                       }
                       title={`Fix the spelling to read exactly "${gen.companyName}"`}
-                      className="flex items-center gap-1 rounded-full border border-amber-400/30 bg-amber-400/10 px-2.5 py-1 text-xs font-medium text-amber-600 outline-none transition-colors hover:bg-amber-400/20 focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 dark:text-amber-300"
+                      className="flex items-center gap-1 rounded-full border border-amber-400/30 bg-amber-400/10 px-2.5 py-1 text-xs font-medium text-amber-700 outline-none transition-colors hover:bg-amber-400/20 focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 dark:text-amber-300"
                     >
                       <SpellCheck className="size-3" />
                       Fix text

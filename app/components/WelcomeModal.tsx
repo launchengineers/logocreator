@@ -9,6 +9,7 @@ import {
   DialogTitle,
 } from "@/app/components/ui/dialog";
 import { Button } from "@/app/components/ui/button";
+import { toast } from "@/hooks/use-toast";
 import { LogoMark } from "./Logo";
 import ApiKeyForm from "./ApiKeyForm";
 import DiagonalShowcase from "./DiagonalShowcase";
@@ -38,6 +39,17 @@ export default function WelcomeModal({
 
   function start() {
     const k = draft.trim();
+    // Same light shape check as the key dialog: a pasted fragment shouldn't
+    // "save" silently and then 401 on the first generation.
+    if (k && (/\s/.test(k) || k.length < 20)) {
+      toast({
+        variant: "destructive",
+        title: "That doesn't look like an API key",
+        description:
+          "Check you copied the whole key, or clear the field to start with free credits.",
+      });
+      return;
+    }
     if (k && k !== apiKey.trim()) onSave(k);
     onStart();
   }

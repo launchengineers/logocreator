@@ -85,9 +85,14 @@ export default function BrandKitModal({
 }) {
   // The asset being viewed large (null = none).
   const [zoomed, setZoomed] = useState<BrandKitItem | null>(null);
+  // Two-click guard for Discard once assets (some paid) have been built.
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
   // Close the lightbox if the kit modal itself closes.
   useEffect(() => {
-    if (!open) setZoomed(null);
+    if (!open) {
+      setZoomed(null);
+      setConfirmDiscard(false);
+    }
   }, [open]);
 
   // Hidden items (favicon size variants) build + zip but are never shown.
@@ -136,7 +141,7 @@ export default function BrandKitModal({
               product mockups and a color palette.
             </DialogDescription>
             <p
-              className="text-xs text-muted-foreground/70"
+              className="text-xs text-muted-foreground"
               title="Together AI bills only the AI renders (product mockups + logo lockups) to your key. Everything else (variants, icons, favicons, social, backgrounds) is generated on-device for free."
             >
               ≈ {formatUsd(aiCost)} in AI credits · {aiCount} AI render
@@ -235,11 +240,32 @@ export default function BrandKitModal({
           <div className="flex items-center justify-between gap-3 border-t border-border px-6 py-4">
             <button
               type="button"
-              onClick={onDiscard}
-              className="flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:text-destructive"
+              onClick={() => {
+                // Once assets exist (the AI ones cost real credits), a single
+                // misclick shouldn't destroy them: ask for a second click.
+                if (doneCount > 0 && !confirmDiscard) {
+                  setConfirmDiscard(true);
+                  return;
+                }
+                setConfirmDiscard(false);
+                onDiscard();
+              }}
+              onMouseLeave={() => setConfirmDiscard(false)}
+              onBlur={() => setConfirmDiscard(false)}
+              aria-label={
+                confirmDiscard
+                  ? "Confirm discard: this deletes every built asset"
+                  : "Discard this brand kit"
+              }
+              className={cn(
+                "flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs font-medium transition-colors",
+                confirmDiscard
+                  ? "text-destructive"
+                  : "text-muted-foreground hover:text-destructive",
+              )}
             >
               <Trash2 className="size-3.5" />
-              Discard
+              {confirmDiscard ? "Discard everything?" : "Discard"}
             </button>
             <div className="flex items-center gap-3">
               <span className="hidden text-xs text-muted-foreground sm:block">
@@ -524,7 +550,7 @@ function GroupProgress({ items }: { items: BrandKitItem[] }) {
   const done = items.filter((i) => i.status === "done").length;
   const busy = items.some((i) => i.status === "building");
   return (
-    <span className="flex items-center gap-1 text-[0.65rem] font-medium tabular-nums text-muted-foreground/70">
+    <span className="flex items-center gap-1 text-[0.65rem] font-medium tabular-nums text-muted-foreground">
       {busy && <Loader2 className="size-2.5 animate-spin" />}
       {done}/{items.length}
     </span>

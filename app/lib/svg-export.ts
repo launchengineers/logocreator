@@ -77,7 +77,7 @@ export async function logoToSvgString(src: string): Promise<string> {
   const canvas = document.createElement("canvas");
   canvas.width = w;
   canvas.height = h;
-  const ctx = canvas.getContext("2d");
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
   if (!ctx) throw new Error("Canvas unavailable");
   // Opaque white base so transparent inputs flatten cleanly.
   ctx.fillStyle = "#ffffff";

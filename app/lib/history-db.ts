@@ -26,8 +26,15 @@ function available(): boolean {
   return typeof indexedDB !== "undefined";
 }
 
+// One cached connection for the whole session. A 4-variation batch fires four
+// parallel saves; opening/closing per call ran the open handshake four times
+// concurrently for nothing. The browser closes it with the page; if another
+// tab upgrades the schema (versionchange) we close and reopen on next use.
+let dbPromise: Promise<IDBDatabase> | null = null;
+
 function openDb(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
+  if (dbPromise) return dbPromise;
+  dbPromise = new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, VERSION);
     req.onupgradeneeded = () => {
       const db = req.result;
@@ -36,9 +43,23 @@ function openDb(): Promise<IDBDatabase> {
         store.createIndex("createdAt", "createdAt");
       }
     };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
+    req.onsuccess = () => {
+      const db = req.result;
+      db.onversionchange = () => {
+        db.close();
+        dbPromise = null;
+      };
+      db.onclose = () => {
+        dbPromise = null;
+      };
+      resolve(db);
+    };
+    req.onerror = () => {
+      dbPromise = null; // let the next call retry
+      reject(req.error);
+    };
   });
+  return dbPromise;
 }
 
 function tx(
@@ -58,26 +79,32 @@ function tx(
 export async function saveLogo(rec: HistoryRecord): Promise<void> {
   if (!available()) return;
   const db = await openDb();
-  try {
-    await tx(db, "readwrite", (s) => s.put(rec));
-  } finally {
-    db.close();
-  }
+  await tx(db, "readwrite", (s) => s.put(rec));
 }
 
-export async function getAllLogos(): Promise<HistoryRecord[]> {
+/**
+ * Newest-first records straight off the createdAt index (no full-store load +
+ * JS sort). `limit` bounds how many Blobs are materialized into memory; omit
+ * it for everything.
+ */
+export async function getAllLogos(limit = Infinity): Promise<HistoryRecord[]> {
   if (!available()) return [];
   const db = await openDb();
-  try {
-    const recs = await new Promise<HistoryRecord[]>((resolve, reject) => {
-      const req = db.transaction(STORE, "readonly").objectStore(STORE).getAll();
-      req.onsuccess = () => resolve(req.result as HistoryRecord[]);
-      req.onerror = () => reject(req.error);
-    });
-    return recs.sort((a, b) => b.createdAt - a.createdAt);
-  } finally {
-    db.close();
-  }
+  return new Promise<HistoryRecord[]>((resolve, reject) => {
+    const recs: HistoryRecord[] = [];
+    const index = db.transaction(STORE, "readonly").objectStore(STORE).index("createdAt");
+    const req = index.openCursor(null, "prev");
+    req.onsuccess = () => {
+      const cursor = req.result;
+      if (cursor && recs.length < limit) {
+        recs.push(cursor.value as HistoryRecord);
+        cursor.continue();
+      } else {
+        resolve(recs);
+      }
+    };
+    req.onerror = () => reject(req.error);
+  });
 }
 
 /** Update a stored logo's metadata (favorite / name) without touching its blob. */
@@ -87,46 +114,34 @@ export async function patchLogo(
 ): Promise<void> {
   if (!available()) return;
   const db = await openDb();
-  try {
-    await new Promise<void>((resolve, reject) => {
-      const t = db.transaction(STORE, "readwrite");
-      const store = t.objectStore(STORE);
-      const getReq = store.get(id);
-      getReq.onsuccess = () => {
-        const rec = getReq.result as HistoryRecord | undefined;
-        if (rec) {
-          store.put({ ...rec, ...patch });
-        } else {
-          // Reject rather than silently no-op so the caller can surface that a
-          // favorite/rename didn't persist (instead of it vanishing on reload).
-          reject(new Error("record not found"));
-        }
-      };
-      t.oncomplete = () => resolve();
-      t.onerror = () => reject(t.error);
-      t.onabort = () => reject(t.error);
-    });
-  } finally {
-    db.close();
-  }
+  await new Promise<void>((resolve, reject) => {
+    const t = db.transaction(STORE, "readwrite");
+    const store = t.objectStore(STORE);
+    const getReq = store.get(id);
+    getReq.onsuccess = () => {
+      const rec = getReq.result as HistoryRecord | undefined;
+      if (rec) {
+        store.put({ ...rec, ...patch });
+      } else {
+        // Reject rather than silently no-op so the caller can surface that a
+        // favorite/rename didn't persist (instead of it vanishing on reload).
+        reject(new Error("record not found"));
+      }
+    };
+    t.oncomplete = () => resolve();
+    t.onerror = () => reject(t.error);
+    t.onabort = () => reject(t.error);
+  });
 }
 
 export async function deleteLogo(id: string): Promise<void> {
   if (!available()) return;
   const db = await openDb();
-  try {
-    await tx(db, "readwrite", (s) => s.delete(id));
-  } finally {
-    db.close();
-  }
+  await tx(db, "readwrite", (s) => s.delete(id));
 }
 
 export async function clearLogos(): Promise<void> {
   if (!available()) return;
   const db = await openDb();
-  try {
-    await tx(db, "readwrite", (s) => s.clear());
-  } finally {
-    db.close();
-  }
+  await tx(db, "readwrite", (s) => s.clear());
 }

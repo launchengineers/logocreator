@@ -134,7 +134,9 @@ export function useBrandKit(apiKey: string): BrandKitController {
       });
       det.push({
         group: "Logo variants",
-        name: "Vector (SVG)",
+        // Honest label: this is an on-device auto-trace of the raster, not a
+        // hand-drawn vector (good for scaling, not designer-grade paths).
+        name: "SVG (auto-traced)",
         filename: "variants/logo.svg",
         build: () => logoToSvgBlob(dataUrl),
       });

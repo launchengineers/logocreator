@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Download,
   FileCode2,
@@ -71,6 +71,12 @@ export default function HistoryDashboard({
 
   const favCount = generations.filter((g) => g.favorite).length;
   const shown = favOnly ? generations.filter((g) => g.favorite) : generations;
+
+  // Unfavoriting the last favorite while filtered would strand the user on a
+  // blank grid with the (now unmounted) toggle stuck on: drop the filter.
+  useEffect(() => {
+    if (favOnly && favCount === 0) setFavOnly(false);
+  }, [favOnly, favCount]);
 
   // Group consecutive same-day logos (the list is already newest-first).
   const groups: { label: string; items: Generation[] }[] = [];
@@ -245,7 +251,7 @@ function HistoryTile({
       <img
         src={gen.image}
         alt={displayName}
-        className="size-full object-cover"
+        className="size-full object-contain"
       />
       {/* Favorite star: persistent when favorited, else on hover/focus */}
       <button

@@ -59,7 +59,7 @@ export function makeTransparent(
   const canvas = document.createElement("canvas");
   canvas.width = w;
   canvas.height = h;
-  const ctx = canvas.getContext("2d")!;
+  const ctx = canvas.getContext("2d", { willReadFrequently: true })!;
   ctx.drawImage(img, 0, 0, w, h);
 
   const image = ctx.getImageData(0, 0, w, h);
@@ -97,16 +97,19 @@ export function makeTransparent(
   const dist = (p: number) =>
     Math.abs(d[p * 4] - br) + Math.abs(d[p * 4 + 1] - bg) + Math.abs(d[p * 4 + 2] - bb);
 
-  // Flood fill from the borders over pixels within the hard tolerance.
+  // Flood fill from the borders over pixels within the hard tolerance. The
+  // stack is a preallocated typed array (each pixel enters at most once via
+  // `visited`), which avoids megabytes of number[] push/pop churn at 1024².
   const visited = new Uint8Array(w * h);
-  const stack: number[] = [];
+  const stack = new Int32Array(w * h);
+  let sp = 0;
   const seed = (p: number) => {
     if (visited[p]) return;
     // Already-transparent pixels are background; opaque pixels join the cleared
     // region only when within tolerance of the reference bg color.
     if (d[p * 4 + 3] < 16 || dist(p) < tol) {
       visited[p] = 1;
-      stack.push(p);
+      stack[sp++] = p;
     }
   };
   for (let x = 0; x < w; x++) {
@@ -117,8 +120,8 @@ export function makeTransparent(
     seed(y * w);
     seed(y * w + w - 1);
   }
-  while (stack.length) {
-    const p = stack.pop()!;
+  while (sp > 0) {
+    const p = stack[--sp];
     d[p * 4 + 3] = 0;
     const x = p % w;
     const y = (p - x) / w;
@@ -155,7 +158,7 @@ export function makeTransparent(
 /** How much of a (post-removal) canvas is transparent, used to detect when
  *  background removal failed (textured/gradient bg → almost nothing cleared). */
 export function transparentFraction(canvas: HTMLCanvasElement): number {
-  const ctx = canvas.getContext("2d")!;
+  const ctx = canvas.getContext("2d", { willReadFrequently: true })!;
   const d = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
   let clear = 0;
   const n = canvas.width * canvas.height;
@@ -169,7 +172,9 @@ export function contentBounds(
   alphaThresh = 12,
 ): { x: number; y: number; w: number; h: number } | null {
   const { width: w, height: h } = canvas;
-  const d = canvas.getContext("2d")!.getImageData(0, 0, w, h).data;
+  const d = canvas
+    .getContext("2d", { willReadFrequently: true })!
+    .getImageData(0, 0, w, h).data;
   let minX = w,
     minY = h,
     maxX = -1,
@@ -203,20 +208,90 @@ export function cropToContent(
   const out = document.createElement("canvas");
   out.width = sw;
   out.height = sh;
-  out.getContext("2d")!.drawImage(canvas, sx, sy, sw, sh, 0, 0, sw, sh);
+  out
+    .getContext("2d", { willReadFrequently: true })!
+    .drawImage(canvas, sx, sy, sw, sh, 0, 0, sw, sh);
   return out;
 }
 
-/** Recolor every opaque pixel of a (transparent) canvas to a single color. */
-function recolor(src: HTMLCanvasElement, color: string): HTMLCanvasElement {
+/**
+ * Recolor every opaque pixel of a (transparent) canvas to a single color.
+ * `hardEdge` first zeroes the low-alpha feather band that makeTransparent
+ * leaves on purpose: painted solid, that band reads as a faint halo and
+ * visually fattens thin strokes on the monochrome variants.
+ */
+function recolor(
+  src: HTMLCanvasElement,
+  color: string,
+  hardEdge = false,
+): HTMLCanvasElement {
   const c = document.createElement("canvas");
   c.width = src.width;
   c.height = src.height;
-  const ctx = c.getContext("2d")!;
+  const ctx = c.getContext("2d", { willReadFrequently: true })!;
   ctx.drawImage(src, 0, 0);
+  if (hardEdge) {
+    const im = ctx.getImageData(0, 0, c.width, c.height);
+    const d = im.data;
+    for (let i = 3; i < d.length; i += 4) if (d[i] < 64) d[i] = 0;
+    ctx.putImageData(im, 0, 0);
+  }
   ctx.globalCompositeOperation = "source-in";
   ctx.fillStyle = color;
   ctx.fillRect(0, 0, c.width, c.height);
+  return c;
+}
+
+/**
+ * Fallback cutout when the border flood fill couldn't key the background
+ * (gradient or textured bg): a plain global color key against the corner
+ * average. Punches interior bg-colored counters too, which is acceptable for
+ * the monochrome fallback it feeds; returns null when even this clears nothing.
+ */
+function globalKeyCutout(
+  img: HTMLImageElement,
+  tolerance = 42,
+): HTMLCanvasElement | null {
+  const w = img.naturalWidth || img.width;
+  const h = img.naturalHeight || img.height;
+  const c = document.createElement("canvas");
+  c.width = w;
+  c.height = h;
+  const ctx = c.getContext("2d", { willReadFrequently: true })!;
+  ctx.drawImage(img, 0, 0, w, h);
+  const image = ctx.getImageData(0, 0, w, h);
+  const d = image.data;
+  const corners = [0, (w - 1) * 4, (h - 1) * w * 4, (h * w - 1) * 4];
+  let br = 0,
+    bg = 0,
+    bb = 0,
+    nc = 0;
+  for (const p of corners) {
+    if (d[p + 3] < 200) continue;
+    br += d[p];
+    bg += d[p + 1];
+    bb += d[p + 2];
+    nc++;
+  }
+  if (nc === 0) return null;
+  br /= nc;
+  bg /= nc;
+  bb /= nc;
+  const tol = tolerance * 3;
+  let cleared = 0;
+  for (let i = 0; i < d.length; i += 4) {
+    const dd =
+      Math.abs(d[i] - br) + Math.abs(d[i + 1] - bg) + Math.abs(d[i + 2] - bb);
+    if (dd < tol) {
+      d[i + 3] = 0;
+      cleared++;
+    }
+  }
+  const total = w * h;
+  // Useless if it cleared almost nothing (textured bg) or nearly everything
+  // (logo too close to the bg color).
+  if (cleared / total < 0.06 || cleared / total > 0.985) return null;
+  ctx.putImageData(image, 0, 0);
   return c;
 }
 
@@ -255,7 +330,7 @@ export function extractPalette(img: HTMLImageElement, count = 6): string[] {
   const c = document.createElement("canvas");
   c.width = w;
   c.height = h;
-  const ctx = c.getContext("2d")!;
+  const ctx = c.getContext("2d", { willReadFrequently: true })!;
   ctx.drawImage(img, 0, 0, w, h);
   const d = ctx.getImageData(0, 0, w, h).data;
 
@@ -319,12 +394,15 @@ export function extractBrandPalette(
   const c = document.createElement("canvas");
   c.width = w;
   c.height = h;
-  const ctx = c.getContext("2d")!;
+  const ctx = c.getContext("2d", { willReadFrequently: true })!;
   ctx.drawImage(img, 0, 0, w, h);
   const d = ctx.getImageData(0, 0, w, h).data;
 
   const HUE_BINS = 18; // 20° each
-  type Bin = { n: number; r: number; g: number; b: number; s: number };
+  // Per hue bin: a saturation²-weighted running average (the swatch shown,
+  // resistant to single anti-aliased outlier pixels), the peak saturation
+  // (how vivid this hue gets) and the pixel count (how much area it covers).
+  type Bin = { n: number; s: number; wr: number; wg: number; wb: number; w: number };
   const bins = new Map<number, Bin>();
   let darkN = 0;
   let lightN = 0;
@@ -351,23 +429,24 @@ export function extractBrandPalette(
     else hue = (r - g) / (mx - mn) + 4;
     hue = (hue * 60 + 360) % 360;
     const key = Math.floor(hue / (360 / HUE_BINS));
-    const e = bins.get(key) || { n: 0, r: 0, g: 0, b: 0, s: 0 };
+    const e = bins.get(key) || { n: 0, s: 0, wr: 0, wg: 0, wb: 0, w: 0 };
     e.n++;
-    if (s > e.s) {
-      // Keep the most-saturated (truest) pixel of this hue as the swatch.
-      e.s = s;
-      e.r = r;
-      e.g = g;
-      e.b = b;
-    }
+    if (s > e.s) e.s = s;
+    const wgt = s * s;
+    e.wr += r * wgt;
+    e.wg += g * wgt;
+    e.wb += b * wgt;
+    e.w += wgt;
     bins.set(key, e);
   }
 
   const vivid = Array.from(bins.values())
-    .filter((e) => e.n >= 3) // drop single-pixel noise / JPEG speckle
-    .sort((a, b) => b.n - a.n)
+    .filter((e) => e.n >= 3 && e.w > 0) // drop single-pixel noise / JPEG speckle
+    // Blend area with vividness so a small-but-iconic accent (a tiny vivid red
+    // dot) isn't pushed out by large washed-out regions.
+    .sort((a, b) => b.n * (0.5 + 0.5 * b.s) - a.n * (0.5 + 0.5 * a.s))
     .slice(0, count)
-    .map((e) => rgbToHex(e.r, e.g, e.b));
+    .map((e) => rgbToHex(e.wr / e.w, e.wg / e.w, e.wb / e.w));
 
   if (vivid.length) return vivid;
   // Monochrome logo: return a sensible neutral.
@@ -483,7 +562,7 @@ export function monogramGlyph(initials: string, color: string): HTMLCanvasElemen
   const c = document.createElement("canvas");
   c.width = size;
   c.height = size;
-  const ctx = c.getContext("2d")!;
+  const ctx = c.getContext("2d", { willReadFrequently: true })!;
   const fontSize = initials.length > 1 ? 520 : 680;
   ctx.font = `700 ${fontSize}px ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif`;
   ctx.textAlign = "center";
@@ -662,8 +741,25 @@ export function extractIconRegion(
   const W = cropped.width;
   const H = cropped.height;
   if (W < 12 || H < 12) return null;
-  const d = cropped.getContext("2d")!.getImageData(0, 0, W, H).data;
+  const d = cropped
+    .getContext("2d", { willReadFrequently: true })!
+    .getImageData(0, 0, W, H).data;
   const A = 40; // alpha "ink" threshold
+
+  // One O(W*H) pass precomputes per-row and per-column ink coverage, so the
+  // band scans below are O(1) per line instead of rescanning the whole image.
+  const rowInk = new Float32Array(H);
+  const colInk = new Float32Array(W);
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      if (d[(y * W + x) * 4 + 3] > A) {
+        rowInk[y]++;
+        colInk[x]++;
+      }
+    }
+  }
+  for (let y = 0; y < H; y++) rowInk[y] /= W;
+  for (let x = 0; x < W; x++) colInk[x] /= H;
 
   // The leading content band along an axis, ended by the first real gap.
   // axis "row" → the band on TOP (stacked icon-over-name); "col" → the band on
@@ -676,15 +772,7 @@ export function extractIconRegion(
     const onT = 0.04;
     const gapT = 0.012;
     const gapLen = Math.max(2, Math.round(M * 0.05));
-    const ink = (i: number) => {
-      let c = 0;
-      for (let j = 0; j < M; j++) {
-        const x = axis === "row" ? j : i;
-        const y = axis === "row" ? i : j;
-        if (d[(y * W + x) * 4 + 3] > A) c++;
-      }
-      return c / M;
-    };
+    const ink = (i: number) => (axis === "row" ? rowInk[i] : colInk[i]);
     let i = 0;
     while (i < N && ink(i) <= onT) i++;
     const start = i;
@@ -706,11 +794,15 @@ export function extractIconRegion(
     if (axis === "row") {
       out.width = W;
       out.height = len;
-      out.getContext("2d")!.drawImage(cropped, 0, start, W, len, 0, 0, W, len);
+      out
+        .getContext("2d", { willReadFrequently: true })!
+        .drawImage(cropped, 0, start, W, len, 0, 0, W, len);
     } else {
       out.width = len;
       out.height = H;
-      out.getContext("2d")!.drawImage(cropped, start, 0, len, H, 0, 0, len, H);
+      out
+        .getContext("2d", { willReadFrequently: true })!
+        .drawImage(cropped, start, 0, len, H, 0, 0, len, H);
     }
     const tight = cropToContent(out, 0);
     const a = tight.width / tight.height;
@@ -742,8 +834,19 @@ export function iconMark(
   companyName: string,
   brandColor: string,
 ): HTMLCanvasElement {
-  if (!cutoutOk || logoType === "wordmark") {
+  if (logoType === "wordmark") {
+    // A wide wordmark genuinely can't be a square favicon → clean initials.
     return monogramGlyph(initialsFrom(companyName), brandColor);
+  }
+  if (!cutoutOk) {
+    // Background removal failed (gradient/textured bg). The mark itself is
+    // still the icon for symbol-led types: use the real artwork (with its
+    // background) rather than inventing an initials glyph that looks nothing
+    // like the logo. Only icon+name needs the separable icon, which we can't
+    // isolate without transparency, so it falls back to initials.
+    return logoType === "icon-name"
+      ? monogramGlyph(initialsFrom(companyName), brandColor)
+      : transFull;
   }
   if (logoType === "icon-name") return extractIconRegion(transFull) ?? transFull;
   // icon / abstract / emblem / monogram → the mark itself is the icon.
@@ -761,7 +864,7 @@ export function categoryPreviews(
   ctx: { logoType: string; companyName: string; brandColor: string },
 ): Record<string, string> {
   const { logoType, companyName, brandColor } = ctx;
-  const cutoutOk = transparentFraction(transparent) > 0.12;
+  const cutoutOk = transparentFraction(transparent) > 0.06;
   const transFull = cropToContent(transparent, 0.02);
   const full: HTMLImageElement | HTMLCanvasElement = cutoutOk ? transFull : img;
   const markGlyph = iconMark(
@@ -795,7 +898,7 @@ export function deterministicAssetSpecs(
   const png = (canvas: HTMLCanvasElement) => () => canvasToBlob(canvas);
   const { logoType, companyName, brandColor } = ctx;
 
-  const cutoutOk = transparentFraction(transparent) > 0.12;
+  const cutoutOk = transparentFraction(transparent) > 0.06;
   const transFull = cropToContent(transparent, 0.02);
   // What to use when compositing the *full* logo into scenes.
   const fullForComposite: HTMLImageElement | HTMLCanvasElement = cutoutOk
@@ -849,13 +952,17 @@ export function deterministicAssetSpecs(
         group: "Logo variants",
         name: "Monochrome black",
         filename: "variants/monochrome-black.png",
-        build: png(scaleOnto(recolor(transFull, "#000000"), 1024, 1024, null, 0.08)),
+        build: png(
+          scaleOnto(recolor(transFull, "#000000", true), 1024, 1024, null, 0.08),
+        ),
       },
       {
         group: "Logo variants",
         name: "Monochrome white",
         filename: "variants/monochrome-white.png",
-        build: png(scaleOnto(recolor(transFull, "#ffffff"), 1024, 1024, null, 0.08)),
+        build: png(
+          scaleOnto(recolor(transFull, "#ffffff", true), 1024, 1024, null, 0.08),
+        ),
       },
       {
         group: "Logo variants",
@@ -870,6 +977,39 @@ export function deterministicAssetSpecs(
         build: png(scaleOnto(transFull, 1024, 1024, "#0c0c0b", 0.14)),
       },
     );
+  } else {
+    // The border flood fill couldn't key this background (gradient / texture).
+    // Don't drop every variant: still ship an on-light card of the real
+    // artwork, and try a plain global color key for the monochrome pair, which
+    // tolerates non-flat backgrounds far better than nothing at all.
+    variants.push({
+      group: "Logo variants",
+      name: "On light",
+      filename: "variants/logo-on-light.png",
+      build: png(scaleOnto(img, 1024, 1024, "#ffffff", 0.14)),
+    });
+    const keyed = globalKeyCutout(img);
+    if (keyed) {
+      const keyedCrop = cropToContent(keyed, 0.02);
+      variants.push(
+        {
+          group: "Logo variants",
+          name: "Monochrome black",
+          filename: "variants/monochrome-black.png",
+          build: png(
+            scaleOnto(recolor(keyedCrop, "#000000", true), 1024, 1024, null, 0.08),
+          ),
+        },
+        {
+          group: "Logo variants",
+          name: "Monochrome white",
+          filename: "variants/monochrome-white.png",
+          build: png(
+            scaleOnto(recolor(keyedCrop, "#ffffff", true), 1024, 1024, null, 0.08),
+          ),
+        },
+      );
+    }
   }
 
   // ── Icons & favicons ───────────────────────────────────

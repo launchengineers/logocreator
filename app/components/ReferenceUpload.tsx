@@ -47,7 +47,17 @@ export default function ReferenceUpload({
         }}
       />
 
-      {!value ? (
+      {!value && status === "reading" ? (
+        // The file was just picked: the bytes are still being read/rasterized,
+        // so show the busy state instantly instead of a silent idle dropzone
+        // (which reads as "nothing happened" and invites a second click).
+        <div className="flex w-full items-center justify-center gap-2.5 rounded-xl border border-dashed border-border bg-background px-3 py-6 text-center">
+          <span className="spinner-ring size-4" />
+          <span className="text-sm font-medium text-muted-foreground">
+            Preparing your reference…
+          </span>
+        </div>
+      ) : !value ? (
         <button
           type="button"
           onClick={() => inputRef.current?.click()}

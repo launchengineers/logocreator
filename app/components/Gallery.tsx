@@ -93,7 +93,7 @@ function GenerationCell({
         height={512}
         unoptimized
         priority={index < 3}
-        className="h-full w-full object-cover transition-transform duration-500 ease-out group-hover:scale-[1.04]"
+        className="h-full w-full object-contain transition-transform duration-500 ease-out group-hover:scale-[1.04]"
       />
       {/* Favorite star: always visible when favorited, else on hover/focus */}
       <Tip label={gen.favorite ? "Remove from favorites" : "Add to favorites"} side="right">

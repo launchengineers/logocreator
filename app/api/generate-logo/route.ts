@@ -256,9 +256,16 @@ export async function POST(req: Request) {
     ? `a clean, complementary solid background of your choice (a white or soft neutral usually works best)`
     : `a solid ${colorName(data.backgroundColor)} (${data.backgroundColor}) background`;
 
+  // Bind the hex to the concrete logo parts ("the icon and the lettering are
+  // ink blue (#19337A)") rather than to an abstract "brand color" role: BFL's
+  // guidance is that hex codes hold best when tied to specific objects. Flat
+  // styles get strictly solid fills; only 3D / Gradient keep tonal depth.
+  const depthAllowance = flatStyle
+    ? "Every fill is solid and flat"
+    : "Lighter and darker tones of that same color are fine for depth";
   const colorClause = data.monochrome
-    ? `Color: paint ${targets} in one solid flat shade of ${brandColorPhrase}, a single color throughout. Place it on ${bgPhrase}, keeping every part clearly legible against that background.`
-    : `Color: use ${brandColorPhrase} as the single dominant brand color across ${targets}${primaryAuto ? "" : ", even where this style is conventionally drawn in other colors"}, keeping everything within that one brand-color family (lighter and darker shades of it are fine for depth). Place it on ${bgPhrase}, keeping every part clearly legible against that background.`;
+    ? `Color: ${targets} ${targets.includes(" and ") ? "are all" : "is"} one solid flat shade of ${brandColorPhrase}, a single color throughout. Place it on ${bgPhrase}, keeping every part clearly legible against that background.`
+    : `Color: ${targets} ${targets.includes(" and ") ? "are" : "is"} ${brandColorPhrase}${primaryAuto ? "" : ", even where this style is conventionally drawn in other colors"}. ${depthAllowance}, with no unrelated colors introduced. Place it on ${bgPhrase}, keeping every part clearly legible against that background.`;
 
   const prompt = dedent`${mediumClause}: ${logoTypeLookup[logoType] ?? logoTypeLookup["icon-name"]} for "${data.companyName || "the brand"}". ${styleLookup[data.selectedStyle] ?? ""} ${detailLookup[data.detailLevel ?? "Balanced"] ?? ""}
 
@@ -277,6 +284,10 @@ export async function POST(req: Request) {
       width: 1024,
       height: 1024,
       response_format: "base64" as const,
+      // Higher guidance = stricter prompt/color adherence, the right trade for
+      // brand marks. Verified live: FLUX.2-pro accepts `guidance` (but NOT
+      // `steps`) on Together; Ideogram accepts neither, so it gets none.
+      ...(hasText ? {} : { guidance: 7 }),
     };
     const response = await client.images.generate(body);
     return Response.json(response.data[0], { status: 200 });

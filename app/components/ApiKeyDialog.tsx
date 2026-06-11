@@ -39,10 +39,24 @@ export default function ApiKeyDialog({
 
   function save() {
     const next = draft.trim();
+    // Light shape check only (formats change): catches pasted fragments and
+    // stray text, which would otherwise "save" fine and then 401 confusingly
+    // on the first real generation.
+    if (next && (/\s/.test(next) || next.length < 20)) {
+      toast({
+        variant: "destructive",
+        title: "That doesn't look like an API key",
+        description:
+          "Check you copied the whole key from api.together.xyz (no spaces).",
+      });
+      return;
+    }
     onSave(next);
     toast({
       title: next ? "API key saved" : "API key removed",
-      description: next ? "You can now generate unlimited logos." : undefined,
+      description: next
+        ? "It's stored only in this browser and used for your next generation."
+        : undefined,
     });
     onOpenChange(false);
   }
