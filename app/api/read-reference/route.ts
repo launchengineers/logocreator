@@ -1,3 +1,6 @@
+import { ipAddress } from "@vercel/functions";
+import { Ratelimit } from "@upstash/ratelimit";
+import { Redis } from "@upstash/redis";
 import { z } from "zod";
 
 /**
@@ -74,6 +77,25 @@ export async function POST(req: Request) {
       "Add your own Together API key to read references here.",
       { status: 401, headers: { "Content-Type": "text/plain" } },
     );
+  }
+
+  // Rate-limit anonymous, server-key reads per client IP so the shared key
+  // cannot be drained in a loop. BYOK callers spend their own key, so skip.
+  if (hasLimiter && !data.userAPIKey) {
+    const ratelimit = new Ratelimit({
+      redis: Redis.fromEnv(),
+      limiter: Ratelimit.fixedWindow(40, "1 d"),
+      analytics: true,
+      prefix: "logocreator-read",
+    });
+    const ip = ipAddress(req) || "anonymous";
+    const { success } = await ratelimit.limit(ip);
+    if (!success) {
+      return new Response(
+        "You've hit the free reference-read limit for now. Add your own Together API key to keep going.",
+        { status: 429, headers: { "Content-Type": "text/plain" } },
+      );
+    }
   }
 
   const apiKey = data.userAPIKey?.trim() || process.env.TOGETHER_API_KEY;

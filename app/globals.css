@@ -250,35 +250,43 @@
 }
 
 /*
-  App shell. Mobile reflows to: header → gallery → controls → footer (footer
-  pinned to the bottom). Desktop is the panel-left / gallery-right two-pane.
+  App shell. Mobile reflows to: header, controls, gallery, footer (controls
+  first so the form isn't buried under an often-empty gallery). Desktop is the
+  panel-left / gallery-right two-pane.
 */
 .app-shell {
   display: grid;
-  grid-template-columns: 1fr;
-  grid-template-rows: auto minmax(13rem, 1fr) auto auto;
+  /* minmax(0, 1fr), not 1fr (= minmax(auto,1fr)): `auto` is min-content, which
+     lets the aspect-square gallery grid force the whole page wider than a phone
+     (1264px @ 375px). minmax(0,...) + min-width:0 on the areas lets it shrink. */
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(13rem, 1fr) auto;
   grid-template-areas:
     "header"
-    "gallery"
     "controls"
+    "gallery"
     "footer";
 }
 .area-header {
   grid-area: header;
+  min-width: 0;
 }
 .area-gallery {
   grid-area: gallery;
+  min-width: 0;
 }
 .area-controls {
   grid-area: controls;
+  min-width: 0;
 }
 .area-footer {
   grid-area: footer;
+  min-width: 0;
 }
 
 @media (min-width: 768px) {
   .app-shell {
-    grid-template-columns: 21rem 1fr;
+    grid-template-columns: 21rem minmax(0, 1fr);
     grid-template-rows: auto 1fr auto;
     /* Footer lives at the bottom of the generation column now, so the
        controls sidebar stretches the full height for more breathing room. */
@@ -290,7 +298,7 @@
 }
 @media (min-width: 1024px) {
   .app-shell {
-    grid-template-columns: 23.5rem 1fr;
+    grid-template-columns: 23.5rem minmax(0, 1fr);
   }
 }
 

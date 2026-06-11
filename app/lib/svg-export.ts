@@ -1,4 +1,3 @@
-import ImageTracer from "imagetracerjs";
 import { loadImage } from "./brand-kit";
 
 /**
@@ -20,6 +19,9 @@ const LOGO_TRACE_OPTS = {
   roundcoords: 2,
   blurradius: 2,
   blurdelta: 20,
+  // Emit `<svg viewBox="0 0 w h">` with NO fixed width/height so the export
+  // actually scales into a favicon slot, a CSS-sized <img>, or a print sheet.
+  viewbox: true,
 };
 
 /**
@@ -66,6 +68,9 @@ function flattenBackground(ctx: CanvasRenderingContext2D, w: number, h: number) 
 }
 
 export async function logoToSvgString(src: string): Promise<string> {
+  // Lazy-loaded: imagetracerjs is ~3.2MB and only needed on an SVG export click,
+  // so it stays out of the first-load bundle.
+  const { default: ImageTracer } = await import("imagetracerjs");
   const img = await loadImage(src);
   const w = img.naturalWidth || img.width;
   const h = img.naturalHeight || img.height;

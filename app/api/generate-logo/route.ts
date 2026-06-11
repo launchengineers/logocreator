@@ -1,4 +1,5 @@
 import { clerkClient, currentUser } from "@clerk/nextjs/server";
+import { ipAddress } from "@vercel/functions";
 import { Ratelimit } from "@upstash/ratelimit";
 import { Redis } from "@upstash/redis";
 import dedent from "dedent";
@@ -142,10 +143,10 @@ export async function POST(req: Request) {
 
   if (ratelimit) {
     // Key anonymous callers by client IP so they don't all share one bucket.
-    const ip =
-      req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
-      req.headers.get("x-real-ip") ||
-      "anonymous";
+    // The platform client IP (x-vercel-forwarded-for), which a caller can't spoof
+    // via a forged x-forwarded-for header. Undefined off-Vercel → one shared
+    // bucket, which is acceptable for local dev.
+    const ip = ipAddress(req) || "anonymous";
     const identifier = user?.id ?? ip;
     const { success, remaining } = await ratelimit.limit(identifier);
     if (clerkEnabled && user) {
@@ -190,7 +191,7 @@ export async function POST(req: Request) {
   const logoTypeLookup: Record<string, string> = {
     "icon-name":
       "a combination mark: a distinctive icon paired with the company name in clean, legible typography",
-    icon: "an icon-only symbol with no text, a single, standalone mark",
+    icon: "an icon-only symbol: a single, standalone graphic mark",
     wordmark:
       "a wordmark: the company name set as distinctive, stylized typography, with no separate icon",
     monogram:
@@ -198,7 +199,7 @@ export async function POST(req: Request) {
     emblem:
       "an emblem / badge: the company name enclosed within a bordered shape such as a circle, shield or seal",
     abstract:
-      "an abstract geometric mark with no text, non-representational, modern and clean",
+      "an abstract geometric mark, non-representational, modern and clean",
   };
 
   const detailLookup: Record<string, string> = {
@@ -215,11 +216,21 @@ export async function POST(req: Request) {
     logoType,
   );
 
+  // Medium anchor: most styles read best as clean flat vector art; only 3D and
+  // Gradient keep depth/shading. FLUX needs this stated, or Minimal/Geometric/
+  // Luxury marks come back shaded or photo-real.
+  const flatStyle = !["3D", "Gradient"].includes(data.selectedStyle);
+  const mediumClause = flatStyle
+    ? "Flat 2D vector logo, built from solid-color shapes with crisp, clean edges"
+    : "Modern, polished logo with smooth, clean rendering";
+
+  // Positive phrasing throughout: FLUX attends to what you describe, not to
+  // prohibitions, so "no text" is stated as a graphic-only description instead.
   const textClause = !hasText
-    ? "Do not include any text, letters or words."
+    ? "Render it as a purely graphic symbol with no lettering: use clean shapes and open negative space where text would otherwise sit."
     : logoType === "monogram"
-      ? `Use only the initials of "${data.companyName}", rendered correctly and legibly.`
-      : `Include the company name "${data.companyName}" spelled EXACTLY and correctly, letter for letter, clearly legible, with no missing, extra, duplicated or misspelled letters.`;
+      ? `Build it from only the initials of "${data.companyName}", each letter clean, complete and correctly formed.`
+      : `Set the company name "${data.companyName}" as clean, evenly-spaced lettering with every letter clear, complete and correctly spelled.`;
 
   // Which parts of the logo the brand color must paint (so it's never just the
   // text, or just the icon: the whole logo reads as one brand color).
@@ -246,17 +257,23 @@ export async function POST(req: Request) {
     : `a solid ${colorName(data.backgroundColor)} (${data.backgroundColor}) background`;
 
   const colorClause = data.monochrome
-    ? `Color: render ${targets} in a single flat shade of ${brandColorPhrase}, strictly one color, with no other hues, gradients or shading. Place it on ${bgPhrase}, and make sure every part stays clearly legible against that background.`
-    : `Color: use ${brandColorPhrase} as the single dominant brand color for ${targets}${primaryAuto ? "" : " (even if this style is conventionally drawn in other colors)"}. Lighter and darker shades or a gradient of the brand color are allowed for depth, but introduce no unrelated colors. Place it on ${bgPhrase}, and make sure every part stays clearly legible against that background.`;
+    ? `Color: paint ${targets} in one solid flat shade of ${brandColorPhrase}, a single color throughout. Place it on ${bgPhrase}, keeping every part clearly legible against that background.`
+    : `Color: use ${brandColorPhrase} as the single dominant brand color across ${targets}${primaryAuto ? "" : ", even where this style is conventionally drawn in other colors"}, keeping everything within that one brand-color family (lighter and darker shades of it are fine for depth). Place it on ${bgPhrase}, keeping every part clearly legible against that background.`;
 
-  const prompt = dedent`A single ${logoTypeLookup[logoType] ?? logoTypeLookup["icon-name"]}, designed as a high-quality, award-winning, professional logo with clean, scalable artwork for both digital and print. ${styleLookup[data.selectedStyle] ?? ""} ${detailLookup[data.detailLevel ?? "Balanced"] ?? ""}
+  const prompt = dedent`${mediumClause}: ${logoTypeLookup[logoType] ?? logoTypeLookup["icon-name"]} for "${data.companyName || "the brand"}". ${styleLookup[data.selectedStyle] ?? ""} ${detailLookup[data.detailLevel ?? "Balanced"] ?? ""}
 
-  ${colorClause} ${textClause} Centered, balanced composition with crisp, clean edges on a solid, uncluttered background.${data.referenceDescription ? ` Take strong visual inspiration from this reference the user uploaded: ${data.referenceDescription}. Echo its overall composition, shapes and feel, but create an original mark. Do not copy it exactly, and do not reproduce any wordmark, logotype or brand name from it.` : ""}${data.additionalInfo ? ` Additional direction: ${data.additionalInfo}.` : ""}`;
+  ${textClause} ${colorClause} Centered, balanced composition with crisp, clean edges on a solid, uncluttered background. Professional and instantly recognizable, scalable from favicon to signage.${data.referenceDescription ? ` Take visual inspiration from this reference's composition, shapes and overall feel, but design an original mark rather than a copy: ${data.referenceDescription}.` : ""}${data.additionalInfo ? ` Additional direction: ${data.additionalInfo}.` : ""}`;
 
   try {
+    // Text-bearing types (wordmark / monogram / emblem / icon-name) embed the
+    // company name letter-for-letter; Ideogram renders in-image lettering far
+    // more reliably than FLUX. Keep FLUX.2-pro for text-free marks (icon /
+    // abstract), where it excels. Both accept this body shape on Together.
     const body = {
       prompt,
-      model: "black-forest-labs/FLUX.2-pro",
+      model: hasText
+        ? "ideogram/ideogram-3.0"
+        : "black-forest-labs/FLUX.2-pro",
       width: 1024,
       height: 1024,
       response_format: "base64" as const,

@@ -1,4 +1,3 @@
-import JSZip from "jszip";
 
 /**
  * Brand-kit primitives. Deterministic, client-side (canvas) asset builders +
@@ -66,19 +65,32 @@ export function makeTransparent(
   const image = ctx.getImageData(0, 0, w, h);
   const d = image.data;
 
-  // Reference bg = average of the four corners.
+  // If the input is already substantially transparent (a transparent generation,
+  // a restored history blob, an uploaded transparent mark), there is no flat
+  // background to key out, and flood-filling would erase dark content whose
+  // transparent surround happens to carry RGB black. Leave it untouched.
+  let alreadyClear = 0;
+  for (let i = 3; i < d.length; i += 4) if (d[i] < 16) alreadyClear++;
+  if (alreadyClear / (w * h) > 0.5) return canvas;
+
+  // Reference bg = average of the OPAQUE corners only (a transparent corner's
+  // RGB is meaningless and would poison the reference color).
   const corners = [0, (w - 1) * 4, (h - 1) * w * 4, (h * w - 1) * 4];
   let br = 0,
     bg = 0,
-    bb = 0;
+    bb = 0,
+    nc = 0;
   for (const c of corners) {
+    if (d[c + 3] < 200) continue;
     br += d[c];
     bg += d[c + 1];
     bb += d[c + 2];
+    nc++;
   }
-  br /= 4;
-  bg /= 4;
-  bb /= 4;
+  if (nc === 0) return canvas; // no solid corner → no detectable background
+  br /= nc;
+  bg /= nc;
+  bb /= nc;
 
   const tol = tolerance * 3; // sum over 3 channels
   const tolSoft = tol * 2.1; // wider band for the feathered edge
@@ -89,7 +101,10 @@ export function makeTransparent(
   const visited = new Uint8Array(w * h);
   const stack: number[] = [];
   const seed = (p: number) => {
-    if (!visited[p] && dist(p) < tol) {
+    if (visited[p]) return;
+    // Already-transparent pixels are background; opaque pixels join the cleared
+    // region only when within tolerance of the reference bg color.
+    if (d[p * 4 + 3] < 16 || dist(p) < tol) {
       visited[p] = 1;
       stack.push(p);
     }
@@ -953,6 +968,8 @@ export function readme(companyName: string, palette: string[]): string {
 export async function zipFiles(
   files: { path: string; data: Blob | string }[],
 ): Promise<Blob> {
+  // Lazy-loaded: jszip (~880KB) is only needed when downloading a brand kit.
+  const { default: JSZip } = await import("jszip");
   const zip = new JSZip();
   for (const f of files) zip.file(f.path, f.data);
   return zip.generateAsync({
