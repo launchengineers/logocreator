@@ -7,7 +7,7 @@ import {
   categoryPreviews,
   deterministicAssetSpecs,
   downloadBlob,
-  extractPalette,
+  kitPalette,
   loadImage,
   makeTransparent,
   paletteFiles,
@@ -121,7 +121,7 @@ export function useBrandKit(apiKey: string): BrandKitController {
       const img = await loadImage(dataUrl);
       if (!alive()) return;
       const transparent = makeTransparent(img);
-      const pal = extractPalette(img);
+      const pal = kitPalette(img);
       paletteRef.current = pal;
       setPalette(pal);
 

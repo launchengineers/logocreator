@@ -267,12 +267,12 @@ function HistoryTile({
           "absolute left-2 top-2 z-20 flex size-6 items-center justify-center rounded-full bg-black/45 backdrop-blur-sm outline-none transition-all focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-white/60",
           gen.favorite
             ? "text-amber-300 opacity-100"
-            : "text-white/85 opacity-0 hover:text-white group-hover:opacity-100 group-focus-within:opacity-100",
+            : "text-white/85 opacity-0 hover:text-white group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100",
         )}
       >
         <Star className={cn("size-3", gen.favorite && "fill-amber-300")} />
       </button>
-      <div className="pointer-events-none absolute inset-0 flex flex-col justify-between bg-gradient-to-t from-black/65 via-black/0 to-black/10 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+      <div className="pointer-events-none absolute inset-0 flex flex-col justify-between bg-gradient-to-t from-black/65 via-black/0 to-black/10 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100">
         <div className="pointer-events-auto flex items-start justify-between gap-1 p-2 pl-9">
           <span className="truncate rounded bg-black/45 px-1.5 py-0.5 text-[0.65rem] font-medium text-white backdrop-blur-sm">
             {displayName}

@@ -453,6 +453,31 @@ export function extractBrandPalette(
   return [darkN >= lightN ? "#1A1A1A" : "#E8E8E8"];
 }
 
+/**
+ * The palette shipped inside the brand kit (brand-colors.css/json + swatches).
+ * Leads with the logo's TRUE vivid hues (hue-grouped, saturation-weighted, the
+ * same extraction the brand importer uses) and tops up with the broader
+ * frequency palette for neutrals, deduped by channel distance. Avoids the
+ * pure-frequency averaging that could ship muddy in-between colors that exist
+ * nowhere in the artwork.
+ */
+export function kitPalette(img: HTMLImageElement, count = 6): string[] {
+  const out: string[] = [];
+  const close = (a: string, b: string) => {
+    const ca = hexToRgb(a);
+    const cb = hexToRgb(b);
+    return (
+      Math.abs(ca.r - cb.r) + Math.abs(ca.g - cb.g) + Math.abs(ca.b - cb.b) <=
+      48
+    );
+  };
+  for (const hex of [...extractBrandPalette(img, 4), ...extractPalette(img, count)]) {
+    if (out.length >= count) break;
+    if (!out.some((seen) => close(seen, hex))) out.push(hex.toUpperCase());
+  }
+  return out;
+}
+
 // ── Color helpers ───────────────────────────────────────────────
 function hexToRgb(hex: string): { r: number; g: number; b: number } {
   const h = hex.replace("#", "");
@@ -475,6 +500,36 @@ function shade(hex: string, amt: number): string {
   const { r, g, b } = hexToRgb(hex);
   const f = (v: number) => (amt < 0 ? v * (1 + amt) : v + (255 - v) * amt);
   return rgbToHex(f(r), f(g), f(b));
+}
+function hexToHsl(hex: string): { h: number; s: number; l: number } {
+  const { r, g, b } = hexToRgb(hex);
+  const rn = r / 255;
+  const gn = g / 255;
+  const bn = b / 255;
+  const mx = Math.max(rn, gn, bn);
+  const mn = Math.min(rn, gn, bn);
+  const l = (mx + mn) / 2;
+  if (mx === mn) return { h: 0, s: 0, l };
+  const d = mx - mn;
+  const s = l > 0.5 ? d / (2 - mx - mn) : d / (mx + mn);
+  let h: number;
+  if (mx === rn) h = ((gn - bn) / d + (gn < bn ? 6 : 0)) / 6;
+  else if (mx === gn) h = ((bn - rn) / d + 2) / 6;
+  else h = ((rn - gn) / d + 4) / 6;
+  return { h, s, l };
+}
+function hslToHex(h: number, s: number, l: number): string {
+  const f = (n: number) => {
+    const k = (n + h * 12) % 12;
+    const a = s * Math.min(l, 1 - l);
+    return l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1));
+  };
+  return rgbToHex(f(0) * 255, f(8) * 255, f(4) * 255);
+}
+/** The brand hue at a specific lightness (slightly tamed saturation). */
+function toneAt(hex: string, l: number): string {
+  const { h, s } = hexToHsl(hex);
+  return hslToHex(h, Math.min(s, 0.82), Math.max(0, Math.min(1, l)));
 }
 function saturation({ r, g, b }: { r: number; g: number; b: number }): number {
   const mx = Math.max(r, g, b);
@@ -603,15 +658,25 @@ export function tileWith(
   return c;
 }
 
-/** A smooth diagonal brand gradient canvas. */
+/** A smooth diagonal brand gradient canvas. The endpoints are derived in HSL
+ *  with a guaranteed minimum lightness spread, so a near-black or near-white
+ *  brand color still yields a visible gradient instead of a flat rectangle. */
 export function gradientCanvas(w: number, h: number, hex: string): HTMLCanvasElement {
   const c = document.createElement("canvas");
   c.width = w;
   c.height = h;
   const ctx = c.getContext("2d")!;
+  const { l } = hexToHsl(hex);
+  let lTop = Math.min(0.8, l + 0.16);
+  let lBot = Math.max(0.14, l - 0.24);
+  if (lTop - lBot < 0.26) {
+    const mid = (lTop + lBot) / 2;
+    lTop = Math.min(0.84, mid + 0.13);
+    lBot = Math.max(0.1, mid - 0.13);
+  }
   const g = ctx.createLinearGradient(0, 0, w, h);
-  g.addColorStop(0, shade(hex, 0.16));
-  g.addColorStop(1, shade(hex, -0.38));
+  g.addColorStop(0, toneAt(hex, lTop));
+  g.addColorStop(1, toneAt(hex, lBot));
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, w, h);
   return c;
@@ -678,7 +743,11 @@ export function patternCanvas(
   c.width = size;
   c.height = size;
   const ctx = c.getContext("2d")!;
-  ctx.fillStyle = shade(hex, 0.9); // very light brand tint
+  // Very light brand tint normally; for a very light brand color flip to a
+  // deep tint instead, so a light mark doesn't vanish into a white-on-white
+  // pattern.
+  const { l } = hexToHsl(hex);
+  ctx.fillStyle = l > 0.78 ? toneAt(hex, 0.3) : toneAt(hex, 0.93);
   ctx.fillRect(0, 0, size, size);
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = "high";
@@ -776,18 +845,26 @@ export function extractIconRegion(
     let i = 0;
     while (i < N && ink(i) <= onT) i++;
     const start = i;
-    let end = N;
+    // Separate at the LARGEST interior gap (ink on both sides), not the first
+    // one: an icon with internal splits (stacked bars, a globe horizon) has
+    // small gaps inside itself, while the icon-to-name separator is normally
+    // the widest gap on the axis. First-gap splitting truncated such icons.
+    let bestGapStart = -1;
+    let bestGapLen = 0;
     while (i < N) {
       if (ink(i) <= gapT) {
         const g = i;
         while (i < N && ink(i) <= gapT) i++;
-        if (i - g >= gapLen) {
-          end = g;
-          break;
+        const runLen = i - g;
+        // i < N → ink resumes after the run, so the gap is interior.
+        if (i < N && runLen >= gapLen && runLen > bestGapLen) {
+          bestGapLen = runLen;
+          bestGapStart = g;
         }
       } else i++;
     }
-    if (end >= N - 1) return null; // no gap → not separable this way
+    if (bestGapStart < 0) return null; // no interior gap → not separable
+    const end = bestGapStart;
     const len = end - start;
     if (len < 6) return null;
     const out = document.createElement("canvas");

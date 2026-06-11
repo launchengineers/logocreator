@@ -95,7 +95,7 @@ export async function POST(req: Request) {
     !hasLimiter
   ) {
     return new Response(
-      "Add your own Together API key to generate logos here.",
+      "Add your own Together AI key to generate logos here.",
       { status: 401, headers: { "Content-Type": "text/plain" } },
     );
   }
@@ -136,9 +136,13 @@ export async function POST(req: Request) {
   const client = new Together(options);
 
   if (data.userAPIKey && clerkEnabled && user) {
-    (await clerkClient()).users.updateUserMetadata(user.id, {
-      unsafeMetadata: { remaining: "BYOK" },
-    });
+    // Best-effort metadata write: never block (or fail) a generation on it,
+    // and never leave an unhandled rejection if Clerk hiccups.
+    await (await clerkClient()).users
+      .updateUserMetadata(user.id, {
+        unsafeMetadata: { remaining: "BYOK" },
+      })
+      .catch(() => {});
   }
 
   if (ratelimit) {
@@ -150,16 +154,18 @@ export async function POST(req: Request) {
     const identifier = user?.id ?? ip;
     const { success, remaining } = await ratelimit.limit(identifier);
     if (clerkEnabled && user) {
-      (await clerkClient()).users.updateUserMetadata(user.id, {
-        unsafeMetadata: {
-          remaining,
-        },
-      });
+      await (await clerkClient()).users
+        .updateUserMetadata(user.id, {
+          unsafeMetadata: {
+            remaining,
+          },
+        })
+        .catch(() => {});
     }
 
     if (!success) {
       return new Response(
-        "You've used up all your credits. Enter your own Together API Key to generate more logos.",
+        "You've used up all your credits. Enter your own Together AI key to generate more logos.",
         {
           status: 429,
           headers: { "Content-Type": "text/plain" },
@@ -252,9 +258,12 @@ export async function POST(req: Request) {
   const brandColorPhrase = primaryAuto
     ? `a single cohesive brand color of your choice that best suits ${data.companyName || "the brand"} and this style`
     : `${colorName(data.primaryColor)} (exact hex ${data.primaryColor})`;
+  // "Perfectly even, flat, single-color" is load-bearing: FLUX likes to add
+  // vignettes / soft gradients behind marks, which later defeats the brand
+  // kit's edge flood-fill background removal.
   const bgPhrase = bgAuto
-    ? `a clean, complementary solid background of your choice (a white or soft neutral usually works best)`
-    : `a solid ${colorName(data.backgroundColor)} (${data.backgroundColor}) background`;
+    ? `a perfectly even, flat, single-color background of your choice (white or a soft neutral usually works best), uniform across the whole frame with no vignette, gradient, shadow or texture`
+    : `a perfectly even, flat ${colorName(data.backgroundColor)} (${data.backgroundColor}) background, uniform across the whole frame with no vignette, gradient, shadow or texture`;
 
   // Bind the hex to the concrete logo parts ("the icon and the lettering are
   // ink blue (#19337A)") rather than to an abstract "brand color" role: BFL's

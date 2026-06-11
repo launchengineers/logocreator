@@ -9,6 +9,11 @@ export const runtime = "nodejs";
 const MAX_HTML_BYTES = 768 * 1024;
 const MAX_IMG_BYTES = 3 * 1024 * 1024;
 const FETCH_TIMEOUT = 8000;
+// Per-icon-candidate timeout + a whole-request budget. The client aborts at
+// 15s; without these, four sequential 8s candidate fetches could keep the
+// server working long after the user already saw a timeout.
+const IMG_FETCH_TIMEOUT = 4500;
+const TOTAL_BUDGET_MS = 12_000;
 
 // SSRF guard: refuse loopback / private / link-local / metadata hosts so this
 // can't be used to probe internal services. Checked on the initial URL *and*
@@ -65,6 +70,8 @@ function isBlockedIp(ip: string): boolean {
     if (a === 169 && b === 254) return true;
     if (a === 172 && b >= 16 && b <= 31) return true;
     if (a === 192 && b === 168) return true;
+    if (a === 100 && b >= 64 && b <= 127) return true; // CGN shared space (RFC 6598)
+    if (a === 198 && (b === 18 || b === 19)) return true; // benchmarking (RFC 2544)
     if (a >= 224) return true; // multicast + reserved
     return false;
   }
@@ -77,6 +84,12 @@ function isBlockedIp(ip: string): boolean {
 // Resolve a hostname and confirm EVERY address it maps to is public. This is
 // what defeats DNS-rebinding: a public-looking host whose A record points at an
 // internal IP is rejected before we ever connect to it.
+//
+// Known residual risk (accepted): fetch() runs its own DNS resolution after
+// this check, so an attacker-controlled DNS server could answer the check with
+// a public IP and the connect with a private one (resolve/connect TOCTOU).
+// Fully closing it needs a pinned-lookup dispatcher; for a public logo tool
+// with no internal services this best-effort guard is the right tradeoff.
 async function isPublicHost(hostname: string): Promise<boolean> {
   const h = hostname.toLowerCase().replace(/^\[|\]$/g, "");
   if (isBlockedHost(h)) return false;
@@ -224,8 +237,9 @@ function validHex(c: string | null): string | null {
 }
 
 export async function POST(req: Request) {
+  const startedAt = Date.now();
   const body = await req.json().catch(() => ({}));
-  const parsed = z.object({ url: z.string() }).safeParse(body);
+  const parsed = z.object({ url: z.string().max(2048) }).safeParse(body);
   if (!parsed.success) {
     return new Response("Enter a website URL.", {
       status: 400,
@@ -296,6 +310,8 @@ export async function POST(req: Request) {
 
   let logoDataUrl: string | null = null;
   for (const cand of candidates) {
+    // Stay inside the request budget: the client gave up at 15s anyway.
+    if (Date.now() - startedAt > TOTAL_BUDGET_MS) break;
     let abs: string;
     try {
       abs = new URL(cand, base).href;
@@ -305,7 +321,7 @@ export async function POST(req: Request) {
     try {
       const u = new URL(abs);
       if (isBlockedHost(u.hostname)) continue;
-      const imgRes = await safeFetch(abs, FETCH_TIMEOUT, false);
+      const imgRes = await safeFetch(abs, IMG_FETCH_TIMEOUT, false);
       if (!imgRes.ok) continue;
       const ct = (imgRes.headers.get("content-type") || "").split(";")[0].trim();
       if (!ct.startsWith("image/")) continue;

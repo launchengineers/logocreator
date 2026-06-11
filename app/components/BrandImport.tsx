@@ -131,12 +131,19 @@ export default function BrandImport({
     }
     setLoading("file");
     try {
-      const dataUrl = await new Promise<string>((resolve, reject) => {
-        const fr = new FileReader();
-        fr.onload = () => resolve(String(fr.result));
-        fr.onerror = () => reject(new Error("read"));
-        fr.readAsDataURL(file);
-      });
+      // Same resilience as the URL path's 15s guard: a FileReader that never
+      // fires would otherwise leave the spinner stuck forever.
+      const dataUrl = await Promise.race([
+        new Promise<string>((resolve, reject) => {
+          const fr = new FileReader();
+          fr.onload = () => resolve(String(fr.result));
+          fr.onerror = () => reject(new Error("read"));
+          fr.readAsDataURL(file);
+        }),
+        new Promise<string>((_, reject) =>
+          setTimeout(() => reject(new Error("timeout")), 10_000),
+        ),
+      ]);
       await onResult({
         logoDataUrl: dataUrl,
         source: file.name.replace(/\.[^.]+$/, "") || "your logo",
@@ -232,7 +239,7 @@ export default function BrandImport({
                     );
                   })}
                 </div>
-                <p className="mt-2 text-[0.65rem] leading-tight text-muted-foreground">
+                <p className="mt-2 text-[0.6875rem] leading-tight text-muted-foreground">
                   Pick your exact brand color.
                 </p>
               </div>
@@ -286,11 +293,17 @@ export default function BrandImport({
               Import
             </button>
           </div>
+          {/* Long scrapes (up to 15s) read as frozen without a progress line. */}
+          {loading === "url" && (
+            <p className="mt-1.5 text-xs text-muted-foreground" aria-live="polite">
+              Reading {url.trim().replace(/^https?:\/\//, "").split("/")[0]}…
+            </p>
+          )}
           <button
             type="button"
             onClick={() => fileRef.current?.click()}
             disabled={busy}
-            className="mt-1.5 flex items-center gap-1 rounded text-[0.7rem] text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+            className="mt-1.5 flex items-center gap-1 rounded text-xs text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
           >
             {loading === "file" ? (
               <Loader2 className="size-3 animate-spin" />

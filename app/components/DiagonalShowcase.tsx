@@ -64,7 +64,15 @@ export default function DiagonalShowcase() {
                       loading="lazy"
                       draggable={false}
                       onError={(e) => {
-                        const tile = e.currentTarget.parentElement;
+                        const img = e.currentTarget;
+                        // A missing -dark.png variant falls back to the light
+                        // image before giving up, so dark mode never shows a
+                        // sparse row just because one variant wasn't shipped.
+                        if (img.src.endsWith("-dark.png")) {
+                          img.src = img.src.replace(/-dark\.png$/, ".png");
+                          return;
+                        }
+                        const tile = img.parentElement;
                         if (tile) tile.style.display = "none";
                       }}
                       className="size-full object-contain p-2"

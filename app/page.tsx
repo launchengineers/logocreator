@@ -149,7 +149,7 @@ function genErrorMessage(status: number): string {
   if (status === 403)
     return "Your Together account can't access this model yet.";
   if (status >= 500)
-    return "Together's image service is busy right now. Give it another try.";
+    return "Together AI's image service is busy right now. Give it another try.";
   return "Something went wrong. Please try again.";
 }
 
@@ -204,8 +204,9 @@ const detailLevels = ["Minimal", "Balanced", "Detailed"] as const;
 
 // WCAG relative luminance + contrast ratio, to warn on hard-to-see color pairs.
 function luminance(hex: string): number {
-  const h = hex.replace("#", "");
-  if (h.length < 6) return 1;
+  let h = hex.replace("#", "");
+  if (h.length === 3) h = h.split("").map((c) => c + c).join("");
+  if (h.length < 6) return 1; // not a color: skip the contrast warning
   const channel = (i: number) => {
     const c = parseInt(h.slice(i, i + 2), 16) / 255;
     return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
@@ -227,8 +228,10 @@ function XLogo({ className }: { className?: string }) {
   );
 }
 
+// One chrome icon-button treatment, shared by the header row and the footer
+// social row so they read as siblings (same size, border and hover).
 const socialLink =
-  "flex size-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground";
+  "flex size-9 items-center justify-center rounded-full border border-border/70 text-muted-foreground transition-colors hover:border-border hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background";
 
 export default function Page() {
   // Inputs
@@ -311,6 +314,22 @@ export default function Page() {
   // First-visit welcome modal.
   const [welcomeOpen, setWelcomeOpen] = useState(false);
 
+  // Mirror of `generations` for the unmount cleanup below (an effect with []
+  // deps would otherwise close over the initial empty array).
+  const generationsRef = useRef<Generation[]>([]);
+  useEffect(() => {
+    generationsRef.current = generations;
+  }, [generations]);
+  // Revoke every blob: object URL when the page unmounts, the counterpart to
+  // the per-delete/clear revocations.
+  useEffect(() => {
+    return () => {
+      generationsRef.current.forEach((g) => {
+        if (g.image.startsWith("blob:")) URL.revokeObjectURL(g.image);
+      });
+    };
+  }, []);
+
   // Load persisted key + credits after mount (avoids hydration mismatches).
   useEffect(() => {
     setUserAPIKey(localStorage.getItem("userAPIKey") || "");
@@ -342,6 +361,7 @@ export default function Page() {
             createdAt: r.createdAt,
             favorite: r.favorite,
             name: r.name,
+            restored: true,
           }));
           // Merge by id (a logo generated before restore finished may already
           // be in state via its own save) and re-sort newest-first, so the
@@ -427,10 +447,11 @@ export default function Page() {
   }
 
   // One logo. On success it pops into the gallery (and on-device history) the
-  // moment it lands; returns a result the batch uses for credit/error handling.
+  // moment it lands; returns a result the batch uses for credit/error handling
+  // (including the new Generation, so Redo can follow it in the lightbox).
   async function generateOne(
     params: GenParams,
-  ): Promise<{ ok: boolean; error?: string }> {
+  ): Promise<{ ok: boolean; error?: string; gen?: Generation }> {
     try {
       const res = await fetch("/api/generate-logo", {
         method: "POST",
@@ -446,10 +467,14 @@ export default function Page() {
         ).blob();
         const image = URL.createObjectURL(blob);
         const createdAt = Date.now();
-        setGenerations((prev) => [
-          { id, image, companyName: params.companyName, params, createdAt },
-          ...prev,
-        ]);
+        const next: Generation = {
+          id,
+          image,
+          companyName: params.companyName,
+          params,
+          createdAt,
+        };
+        setGenerations((prev) => [next, ...prev]);
         // Charge the run's single free credit the moment its FIRST logo lands,
         // not up front: closing the tab mid-batch then costs nothing.
         if (!hasOwnKey && !chargedRef.current) {
@@ -464,7 +489,7 @@ export default function Page() {
           blob,
         }).catch(onPersistError);
         savePromises.current.set(id, savePromise);
-        return { ok: true };
+        return { ok: true, gen: next };
       }
       const text = res.headers.get("Content-Type")?.includes("text/plain")
         ? await res.text()
@@ -476,8 +501,12 @@ export default function Page() {
   }
 
   // A "run": fire N parallel generations (a set of variations). Costs 1 free
-  // credit per run regardless of N; refunded if the entire run fails.
-  async function runBatch(params: GenParams, n: number) {
+  // credit per run regardless of N (charged on the first success). Returns the
+  // per-generation results so callers like Redo can follow the new logo.
+  async function runBatch(
+    params: GenParams,
+    n: number,
+  ): Promise<{ ok: boolean; error?: string; gen?: Generation }[] | undefined> {
     if (runningRef.current) return;
     if (!hasOwnKey && credits <= 0) {
       setApiKeyOpen(true);
@@ -531,14 +560,21 @@ export default function Page() {
           description: "Some variations didn't come through. Vary for more.",
         });
       }
+      return results;
     } finally {
       runningRef.current = false;
     }
   }
 
-  // Backwards-compatible single-logo helper (used by Redo).
-  function runGeneration(params: GenParams) {
-    return runBatch(params, 1);
+  // Redo from the lightbox: regenerate with the same settings while the modal
+  // stays open (matching how an edit behaves), then follow the fresh result if
+  // the user is still looking at the logo they redid.
+  async function redoInModal(gen: Generation) {
+    const results = await runBatch(gen.params, 1);
+    const fresh = results?.find((r) => r.ok)?.gen;
+    if (fresh) {
+      setActiveGen((cur) => (cur && cur.id === gen.id ? fresh : cur));
+    }
   }
 
   // "Keep editing": image-to-image edit of an existing logo via kontext. The
@@ -607,7 +643,7 @@ export default function Page() {
         title: "Couldn't apply that edit",
         description: meaningful
           ? msg
-          : "Together's image service is busy right now. Your text is still here. Give it another try. (No credit was used.)",
+          : "Together AI's image service is busy right now. Your text is still here. Give it another try. (No credit was used.)",
       });
       return false;
     } finally {
@@ -637,14 +673,20 @@ export default function Page() {
   function handleLucky() {
     if (runningRef.current) return;
     setSelectedStyle(SURPRISE_STYLE);
-    setPrimaryColor("auto");
+    setPrimaryColor(AUTO_COLOR);
     setActivePreset(null);
+    // The form just visibly changed under the user (style → Surprise, color →
+    // Auto): say so, so it doesn't read as the controls glitching.
+    toast({
+      title: "Feeling lucky",
+      description: "Rolling surprise styles with an AI-picked color.",
+    });
     runBatch(
       {
         companyName,
         logoType,
         selectedStyle: SURPRISE_STYLE,
-        primaryColor: "auto",
+        primaryColor: AUTO_COLOR,
         backgroundColor,
         detailLevel,
         monochrome,
@@ -993,7 +1035,13 @@ export default function Page() {
             </Tip>
             <ApiKeyDialog
               open={apiKeyOpen}
-              onOpenChange={setApiKeyOpen}
+              onOpenChange={(o) => {
+                setApiKeyOpen(o);
+                // Closing without saving abandons the "brand kit needs a key"
+                // intent; otherwise adding a key later (for any reason) would
+                // surprise-launch a kit for that stale logo.
+                if (!o) setPendingBrandKitGen(null);
+              }}
               apiKey={userAPIKey}
               onSave={handleApiKeySave}
               credits={credits}
@@ -1025,7 +1073,11 @@ export default function Page() {
 
               <div>
                 <span className="label-eyebrow mb-2 block">Quick start</span>
-                <div className="scroll-fade-x -mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1 pr-7 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                <div
+                  role="group"
+                  aria-label="Quick start presets"
+                  className="scroll-fade-x -mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1 pr-7 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+                >
                   {STARTER_PRESETS.map((p) => {
                     const Icon = p.icon;
                     return (
@@ -1079,7 +1131,11 @@ export default function Page() {
                   placeholder="A fox, friendly and modern, with a subtle leaf…"
                 />
                 {additionalInfo.trim() === "" && (
-                  <div className="scroll-fade-x -mx-1 mt-2 flex gap-1.5 overflow-x-auto px-1 pb-0.5 pr-7 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                  <div
+                    role="group"
+                    aria-label="Description suggestions"
+                    className="scroll-fade-x -mx-1 mt-2 flex gap-1.5 overflow-x-auto px-1 pb-0.5 pr-7 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+                  >
                     {DESCRIBE_SUGGESTIONS.map((s) => (
                       <button
                         key={s}
@@ -1164,7 +1220,7 @@ export default function Page() {
                   />
                 </div>
                 <p className="mt-2.5 text-xs text-muted-foreground">
-                  {primaryColor === "auto" || backgroundColor === "auto" ? (
+                  {primaryColor === AUTO_COLOR || backgroundColor === AUTO_COLOR ? (
                     <span className="flex items-center gap-1.5">
                       <Sparkles className="size-3.5 shrink-0 text-primary" />
                       AI will pick a fitting color. Regenerate for different
@@ -1214,12 +1270,18 @@ export default function Page() {
                     </div>
 
                     <div className="flex items-center justify-between">
-                      <span className="label-eyebrow">Monochrome</span>
+                      <span
+                        id="monochrome-label"
+                        onClick={() => setMonochrome((v) => !v)}
+                        className="label-eyebrow cursor-pointer select-none"
+                      >
+                        Monochrome
+                      </span>
                       <button
                         type="button"
                         role="switch"
                         aria-checked={monochrome}
-                        aria-label="Monochrome"
+                        aria-labelledby="monochrome-label"
                         onClick={() => setMonochrome((v) => !v)}
                         className={cn(
                           "relative h-5 w-9 shrink-0 rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card",
@@ -1288,9 +1350,11 @@ export default function Page() {
                   )}
                   {isGenerating
                     ? "Generating…"
-                    : variationCount > 1
-                      ? `Generate ${variationCount}`
-                      : "Generate logo"}
+                    : !hasOwnKey && credits <= 0
+                      ? "Add a key to generate"
+                      : variationCount > 1
+                        ? `Generate ${variationCount} logos`
+                        : "Generate logo"}
                 </Button>
               </div>
 
@@ -1379,10 +1443,7 @@ export default function Page() {
         hasOwnKey={hasOwnKey}
         credits={credits}
         onClose={() => setActiveGen(null)}
-        onRegenerate={(gen) => {
-          setActiveGen(null);
-          runGeneration(gen.params);
-        }}
+        onRegenerate={redoInModal}
         onCreateBrandKit={handleCreateBrandKit}
         onEdit={runEdit}
         onToggleFavorite={toggleFavorite}

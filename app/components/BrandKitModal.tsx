@@ -144,7 +144,7 @@ export default function BrandKitModal({
               className="text-xs text-muted-foreground"
               title="Together AI bills only the AI renders (product mockups + logo lockups) to your key. Everything else (variants, icons, favicons, social, backgrounds) is generated on-device for free."
             >
-              ≈ {formatUsd(aiCost)} in AI credits · {aiCount} AI render
+              ~{formatUsd(aiCost)} in AI credits · {aiCount} AI render
               {aiCount === 1 ? "" : "s"}, everything else free
             </p>
           </DialogHeader>
@@ -159,7 +159,9 @@ export default function BrandKitModal({
                 <span className="flex min-w-0 items-center gap-1.5">
                   <Sparkles className="size-3 shrink-0 animate-pulse text-primary" />
                   <span className="truncate">
-                    {nowRendering ? `Rendering ${nowRendering}…` : "Preparing…"}
+                    {nowRendering
+                      ? `Rendering ${nowRendering}…`
+                      : "Preparing your assets…"}
                   </span>
                 </span>
               ) : (
@@ -501,7 +503,7 @@ function ConfigureView({
                       <span className="text-sm font-semibold text-foreground">
                         {cat.group}
                       </span>
-                      <span className="shrink-0 text-[0.65rem] font-medium tabular-nums text-muted-foreground">
+                      <span className="shrink-0 text-[0.6875rem] font-medium tabular-nums text-muted-foreground">
                         {cat.count}
                       </span>
                     </div>
@@ -550,7 +552,7 @@ function GroupProgress({ items }: { items: BrandKitItem[] }) {
   const done = items.filter((i) => i.status === "done").length;
   const busy = items.some((i) => i.status === "building");
   return (
-    <span className="flex items-center gap-1 text-[0.65rem] font-medium tabular-nums text-muted-foreground">
+    <span className="flex items-center gap-1 text-[0.6875rem] font-medium tabular-nums text-muted-foreground">
       {busy && <Loader2 className="size-2.5 animate-spin" />}
       {done}/{items.length}
     </span>
@@ -604,7 +606,7 @@ function AssetTile({
           ) : (
             <span className="size-1.5 animate-tile-breathe rounded-full bg-muted-foreground/40" />
           )}
-          <span className="line-clamp-2 text-[0.6rem] font-medium leading-tight text-muted-foreground">
+          <span className="line-clamp-2 text-[0.6875rem] font-medium leading-tight text-muted-foreground">
             {item.status === "error" ? `${item.name}: failed` : item.name}
           </span>
         </div>

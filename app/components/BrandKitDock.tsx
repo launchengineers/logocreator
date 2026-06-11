@@ -26,7 +26,10 @@ export default function BrandKitDock({
   onOpen: () => void;
   onDiscard: () => void;
 }) {
-  const pct = total > 0 ? doneCount / total : 0;
+  // Clamp: during the configure→building transition doneCount can momentarily
+  // exceed a just-narrowed total, which would over-fill the ring.
+  const pct = total > 0 ? Math.min(1, doneCount / total) : 0;
+  const shownDone = total > 0 ? Math.min(doneCount, total) : doneCount;
 
   return (
     <AnimatePresence>
@@ -35,7 +38,7 @@ export default function BrandKitDock({
           initial={{ opacity: 0, y: 24, scale: 0.96 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
           exit={{ opacity: 0, y: 24, scale: 0.96 }}
-          transition={{ type: "spring", stiffness: 400, damping: 30 }}
+          transition={{ duration: 0.38, ease: [0.22, 1, 0.36, 1] }}
           className="fixed bottom-[4.5rem] right-4 z-40 md:right-6"
         >
           <div className="group relative">
@@ -54,7 +57,9 @@ export default function BrandKitDock({
                   {(gen.companyName || "Your logo") + " · "}
                   {phase === "done"
                     ? `${total} assets`
-                    : `${doneCount} of ${total || "…"}`}
+                    : total > 0
+                      ? `${shownDone} of ${total}`
+                      : "starting…"}
                 </span>
               </span>
             </button>

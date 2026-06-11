@@ -196,7 +196,9 @@ export default function ColorSwatches({
             aria-haspopup="dialog"
             aria-expanded={open}
             onClick={() => {
-              setHexDraft(customSelected ? value.replace(/^#/, "") : "");
+              setHexDraft(
+                customSelected ? value.replace(/^#/, "").toUpperCase() : "",
+              );
               setHexError(false);
               setOpen((o) => !o);
             }}
@@ -271,7 +273,14 @@ export default function ColorSwatches({
                   <input
                     value={hexDraft}
                     onChange={(e) => {
-                      setHexDraft(e.target.value.replace(/[^0-9a-fA-F]/g, "").slice(0, 6));
+                      // Store uppercased so the value matches what the CSS
+                      // uppercase transform displays (copy/paste, SR output).
+                      setHexDraft(
+                        e.target.value
+                          .replace(/[^0-9a-fA-F]/g, "")
+                          .slice(0, 6)
+                          .toUpperCase(),
+                      );
                       setHexError(false);
                     }}
                     onKeyDown={(e) => {
@@ -292,7 +301,7 @@ export default function ColorSwatches({
                 </div>
                 <label
                   title="System color picker"
-                  className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-lg border border-input"
+                  className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-lg border border-input ring-offset-2 ring-offset-popover focus-within:ring-2 focus-within:ring-ring"
                   style={{
                     background:
                       "conic-gradient(from 90deg, #ff5d5d, #f6c544, #36c46a, #2f6ff5, #a855f7, #ff5d5d)",

@@ -86,6 +86,13 @@ function CyclingThumb({
   active: boolean;
 }) {
   const [i, setI] = useState(0);
+  // The 4 hover frames only mount after the first hover: at rest the panel
+  // loads 8 thumbnails instead of 40 (the styles dir is heavy).
+  const [armed, setArmed] = useState(false);
+
+  useEffect(() => {
+    if (active) setArmed(true);
+  }, [active]);
 
   useEffect(() => {
     const reduce =
@@ -107,10 +114,11 @@ function CyclingThumb({
 
   const idx = active ? i : 0;
   const transition = { duration: 0.5, ease: [0.22, 1, 0.36, 1] as const };
+  const shown = armed ? frames : frames.slice(0, 1);
 
   return (
     <span className="relative block size-[3.25rem]">
-      {frames.map((src, k) => (
+      {shown.map((src, k) => (
         <motion.span
           key={src}
           className="absolute inset-0"

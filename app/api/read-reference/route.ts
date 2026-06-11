@@ -74,7 +74,7 @@ export async function POST(req: Request) {
     !hasLimiter
   ) {
     return new Response(
-      "Add your own Together API key to read references here.",
+      "Add your own Together AI key to read references here.",
       { status: 401, headers: { "Content-Type": "text/plain" } },
     );
   }
@@ -92,7 +92,7 @@ export async function POST(req: Request) {
     const { success } = await ratelimit.limit(ip);
     if (!success) {
       return new Response(
-        "You've hit the free reference-read limit for now. Add your own Together API key to keep going.",
+        "You've hit the free reference-read limit for now. Add your own Together AI key to keep going.",
         { status: 429, headers: { "Content-Type": "text/plain" } },
       );
     }

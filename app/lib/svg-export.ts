@@ -34,18 +34,26 @@ const LOGO_TRACE_OPTS = {
 function flattenBackground(ctx: CanvasRenderingContext2D, w: number, h: number) {
   const image = ctx.getImageData(0, 0, w, h);
   const d = image.data;
+  // Sample only OPAQUE corners: a transparent corner's RGB is usually (0,0,0)
+  // and would drag the reference toward black. The caller fills white first,
+  // so this is belt-and-braces, but the shared pattern must stay alpha-aware
+  // (the alpha-blind version of this is exactly what broke makeTransparent).
   const corners = [0, (w - 1) * 4, (h - 1) * w * 4, (h * w - 1) * 4];
   let br = 0,
     bg = 0,
-    bb = 0;
+    bb = 0,
+    nc = 0;
   for (const c of corners) {
+    if (d[c + 3] < 200) continue;
     br += d[c];
     bg += d[c + 1];
     bb += d[c + 2];
+    nc++;
   }
-  br = Math.round(br / 4);
-  bg = Math.round(bg / 4);
-  bb = Math.round(bb / 4);
+  if (nc === 0) return; // nothing opaque to key against
+  br = Math.round(br / nc);
+  bg = Math.round(bg / nc);
+  bb = Math.round(bb / nc);
   const tol = 60 * 3; // generous: noisy "white" varies a fair bit
   for (let i = 0; i < d.length; i += 4) {
     if (d[i + 3] < 24) {

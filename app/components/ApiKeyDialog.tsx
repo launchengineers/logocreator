@@ -76,7 +76,7 @@ export default function ApiKeyDialog({
         <DialogTrigger asChild>
           <button
             type="button"
-            aria-label="Together API key"
+            aria-label="Together AI key"
             className="relative flex size-9 items-center justify-center rounded-full border border-border/70 text-muted-foreground transition-colors hover:border-border hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
           >
             <KeyRound className="size-[1.05rem]" />
@@ -96,7 +96,7 @@ export default function ApiKeyDialog({
       <DialogContent className="max-w-md gap-5 rounded-2xl">
         <DialogHeader>
           <DialogTitle className="text-[1.0625rem]">
-            {outOfCredits ? "You're out of free credits" : "Together API key"}
+            {outOfCredits ? "You're out of free credits" : "Together AI key"}
           </DialogTitle>
           <DialogDescription className="leading-relaxed">
             {outOfCredits

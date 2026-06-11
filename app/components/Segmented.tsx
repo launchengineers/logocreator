@@ -62,7 +62,7 @@ export default function Segmented({
             tabIndex={active ? 0 : -1}
             onClick={() => onChange(option)}
             className={cn(
-              "flex-1 rounded-[0.4rem] px-2 py-1.5 text-xs font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+              "flex-1 rounded-md px-2 py-1.5 text-xs font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
               active
                 ? "bg-foreground text-background"
                 : "text-muted-foreground hover:text-foreground",

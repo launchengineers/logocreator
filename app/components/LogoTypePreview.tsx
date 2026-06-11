@@ -137,6 +137,11 @@ const PREVIEWS: Record<string, Preview> = {
   },
 };
 
+/** The one-line description for a logo type (for surfaces without the panel). */
+export function typeDescription(typeKey: string): string {
+  return (PREVIEWS[typeKey] ?? PREVIEWS["icon-name"]).desc;
+}
+
 export default function LogoTypePreview({ typeKey }: { typeKey: string }) {
   const p = PREVIEWS[typeKey] ?? PREVIEWS["icon-name"];
   return (

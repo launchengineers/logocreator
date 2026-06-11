@@ -17,12 +17,12 @@ export default function TogetherCredit({ className }: { className?: string }) {
       <span className="text-xs text-muted-foreground">Powered by</span>
       <img
         src="/together-logo-light.png"
-        alt="together.ai"
+        alt="Together AI"
         className="h-[1.15rem] w-auto dark:hidden"
       />
       <img
         src="/together-logo-dark.png"
-        alt="together.ai"
+        alt="Together AI"
         className="hidden h-[1.15rem] w-auto dark:block"
       />
     </a>

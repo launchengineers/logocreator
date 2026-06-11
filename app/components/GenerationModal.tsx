@@ -5,6 +5,7 @@ import Image from "next/image";
 import {
   Download,
   FileCode2,
+  ImageOff,
   Loader2,
   RefreshCw,
   Sparkles,
@@ -108,6 +109,12 @@ export default function GenerationModal({
   const [svgBusy, setSvgBusy] = useState(false);
   const [editText, setEditText] = useState("");
   const [nameDraft, setNameDraft] = useState("");
+  const [imgFailed, setImgFailed] = useState(false);
+
+  // A new logo (or a Redo swap) gets a fresh chance to load.
+  useEffect(() => {
+    setImgFailed(false);
+  }, [gen?.image]);
 
   // Sync the editable name when a different logo opens.
   useEffect(() => {
@@ -160,7 +167,7 @@ export default function GenerationModal({
     ? credits > 0
       ? `Uses 1 of ${credits} free credit${credits === 1 ? "" : "s"} · added as a new logo`
       : "Add your API key to keep editing"
-    : `≈ ${formatUsd(PRICE_PER_AI_ASSET)} per edit · added as a new logo`;
+    : `~${formatUsd(PRICE_PER_AI_ASSET)} per edit · added as a new logo`;
 
   return (
     <Dialog open={!!gen} onOpenChange={(o) => !o && onClose()}>
@@ -186,20 +193,30 @@ export default function GenerationModal({
                 }}
               />
               <div className="relative aspect-square w-full overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
-                <Image
-                  src={gen.image}
-                  alt={gen.companyName ? `${gen.companyName} logo` : "Logo"}
-                  width={1024}
-                  height={1024}
-                  unoptimized
-                  priority
-                  className="h-full w-full object-contain"
-                />
-                {editing && (
+                {imgFailed ? (
+                  <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-muted-foreground">
+                    <ImageOff className="size-8 opacity-60" />
+                    <span className="px-6 text-center text-sm">
+                      This image can&apos;t be loaded anymore.
+                    </span>
+                  </div>
+                ) : (
+                  <Image
+                    src={gen.image}
+                    alt={gen.companyName ? `${gen.companyName} logo` : "Logo"}
+                    width={1024}
+                    height={1024}
+                    unoptimized
+                    priority
+                    onError={() => setImgFailed(true)}
+                    className="h-full w-full object-contain"
+                  />
+                )}
+                {(editing || busy) && (
                   <div className="absolute inset-0 flex flex-col items-center justify-center gap-2.5 rounded-2xl bg-background/75 backdrop-blur-sm">
                     <span className="spinner-ring size-9" />
                     <span className="text-sm font-medium text-muted-foreground">
-                      Editing…
+                      {editing ? "Editing…" : "Generating…"}
                     </span>
                   </div>
                 )}
@@ -293,7 +310,11 @@ export default function GenerationModal({
                   aria-label="Describe an edit to this logo"
                   className="mt-2.5 min-h-[5.25rem] text-sm"
                 />
-                <div className="mt-2 flex flex-wrap gap-1.5">
+                <div
+                  role="group"
+                  aria-label="Quick edits"
+                  className="mt-2 flex flex-wrap gap-1.5"
+                >
                   {["icon-name", "wordmark", "monogram", "emblem"].includes(
                     gen.params.logoType,
                   ) && (

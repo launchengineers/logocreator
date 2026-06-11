@@ -91,7 +91,8 @@ export default function ReferenceUpload({
 
           <div className="min-w-0 flex-1">
             <div className="flex items-center justify-between gap-2">
-              <span className="label-eyebrow">
+              {/* aria-live so screen readers hear reading → detected/error too */}
+              <span className="label-eyebrow" aria-live="polite">
                 {status === "reading"
                   ? "Reading…"
                   : status === "error"
@@ -117,12 +118,12 @@ export default function ReferenceUpload({
                 )}
                 <div className="mt-1.5 flex flex-wrap items-center gap-2">
                   {value.styleGuess && (
-                    <span className="rounded-full bg-secondary px-2 py-0.5 text-[0.65rem] font-medium text-foreground">
+                    <span className="rounded-full bg-secondary px-2 py-0.5 text-[0.6875rem] font-medium text-foreground">
                       {value.styleGuess}
                     </span>
                   )}
                   {value.dominantColor !== "auto" && (
-                    <span className="flex items-center gap-1 text-[0.65rem] uppercase text-muted-foreground">
+                    <span className="flex items-center gap-1 text-[0.6875rem] uppercase text-muted-foreground">
                       <span
                         className="size-3 rounded-full ring-1 ring-foreground/15"
                         style={{ backgroundColor: value.dominantColor }}
@@ -135,7 +136,7 @@ export default function ReferenceUpload({
             )}
             {status === "reading" && (
               <p className="mt-1 text-xs text-muted-foreground">
-                Looking at your reference…
+                Reading your reference…
               </p>
             )}
             {status === "error" && (

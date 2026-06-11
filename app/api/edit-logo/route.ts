@@ -52,7 +52,7 @@ export async function POST(req: Request) {
     !clerkEnabled &&
     !hasLimiter
   ) {
-    return new Response("Add your own Together API key to edit logos here.", {
+    return new Response("Add your own Together AI key to edit logos here.", {
       status: 401,
       headers: { "Content-Type": "text/plain" },
     });
@@ -72,7 +72,7 @@ export async function POST(req: Request) {
     const { success } = await ratelimit.limit(ip);
     if (!success) {
       return new Response(
-        "You've hit the free edit limit for now. Add your own Together API key to keep going.",
+        "You've hit the free edit limit for now. Add your own Together AI key to keep going.",
         { status: 429, headers: { "Content-Type": "text/plain" } },
       );
     }
