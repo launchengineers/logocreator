@@ -53,6 +53,7 @@ function SkeletonCell() {
 function GenerationCell({
   gen,
   index,
+  busy,
   onVary,
   onOpen,
   onCreateBrandKit,
@@ -60,6 +61,7 @@ function GenerationCell({
 }: {
   gen: Generation;
   index: number;
+  busy: boolean;
   onVary: (gen: Generation) => void;
   onOpen: (gen: Generation) => void;
   onCreateBrandKit: (gen: Generation) => void;
@@ -140,15 +142,16 @@ function GenerationCell({
               <Sparkles className="size-4" />
             </button>
           </Tip>
-          <Tip label="Make variations">
+          <Tip label={busy ? "Still generating…" : "Make variations"}>
             <button
               type="button"
+              disabled={busy}
               onClick={(e) => {
                 e.stopPropagation();
                 onVary(gen);
               }}
               aria-label="Make variations of this logo"
-              className="flex size-8 items-center justify-center rounded-full text-white/90 outline-none transition-colors hover:bg-white/15 focus-visible:bg-white/20 focus-visible:ring-2 focus-visible:ring-white/60"
+              className="flex size-8 items-center justify-center rounded-full text-white/90 outline-none transition-colors hover:bg-white/15 focus-visible:bg-white/20 focus-visible:ring-2 focus-visible:ring-white/60 disabled:pointer-events-none disabled:opacity-40"
             >
               <RefreshCw className="size-4" />
             </button>
@@ -200,6 +203,7 @@ export default function Gallery({
             key={gen.id}
             gen={gen}
             index={i}
+            busy={pendingCount > 0}
             onVary={onVary}
             onOpen={onOpen}
             onCreateBrandKit={onCreateBrandKit}

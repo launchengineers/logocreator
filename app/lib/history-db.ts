@@ -94,7 +94,13 @@ export async function patchLogo(
       const getReq = store.get(id);
       getReq.onsuccess = () => {
         const rec = getReq.result as HistoryRecord | undefined;
-        if (rec) store.put({ ...rec, ...patch });
+        if (rec) {
+          store.put({ ...rec, ...patch });
+        } else {
+          // Reject rather than silently no-op so the caller can surface that a
+          // favorite/rename didn't persist (instead of it vanishing on reload).
+          reject(new Error("record not found"));
+        }
       };
       t.oncomplete = () => resolve();
       t.onerror = () => reject(t.error);

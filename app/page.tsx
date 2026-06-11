@@ -38,7 +38,7 @@ import HistoryDashboard from "./components/HistoryDashboard";
 import WelcomeModal from "./components/WelcomeModal";
 import BrandImport, { type BrandImportResult } from "./components/BrandImport";
 import { Tip } from "./components/ui/tooltip";
-import { PRICE_PER_LOGO, formatUsd } from "./lib/pricing";
+import { formatUsd, pricePerLogo } from "./lib/pricing";
 import {
   STARTER_PRESETS,
   DESCRIBE_SUGGESTIONS,
@@ -282,6 +282,19 @@ export default function Page() {
   const quotaWarnedRef = useRef(false); // warn once if on-device storage fills
   const refReqRef = useRef(0); // cancels a stale reference-read response
   const importReqRef = useRef(0); // cancels a stale brand-import response
+  // Synchronous single-flight guards. A React state flag (isGenerating/isEditing)
+  // updates too late to stop a fast double-click, which would double-charge a
+  // free credit and spawn phantom skeletons; a ref flips immediately.
+  const runningRef = useRef(false);
+  const editingRef = useRef(false);
+  // Charge a run's free credit once, on its first successful logo (so closing
+  // the tab mid-batch never burns a credit for nothing).
+  const chargedRef = useRef(false);
+  // Warn once if a non-quota persistence write fails (so it isn't silent).
+  const persistWarnedRef = useRef(false);
+  // Per-logo save promises, so a fast favorite/rename can wait for the record
+  // to exist before patching it.
+  const savePromises = useRef<Map<string, Promise<unknown>>>(new Map());
 
   // First-visit welcome modal.
   const [welcomeOpen, setWelcomeOpen] = useState(false);
@@ -306,7 +319,10 @@ export default function Page() {
       getAllLogos()
         .then((recs) => {
           if (!recs.length) return;
-          const restored: Generation[] = recs.map((r) => ({
+          // Only hydrate the most recent window into the live gallery (each one
+          // costs a multi-MB blob object URL + a mounted cell); the full set
+          // stays in IndexedDB and is browsable in the History dashboard.
+          const restored: Generation[] = recs.slice(0, 60).map((r) => ({
             id: r.id,
             image: URL.createObjectURL(r.blob),
             companyName: r.companyName,
@@ -315,7 +331,16 @@ export default function Page() {
             favorite: r.favorite,
             name: r.name,
           }));
-          setGenerations((prev) => [...prev, ...restored]);
+          // Merge by id (a logo generated before restore finished may already
+          // be in state via its own save) and re-sort newest-first, so the
+          // order is stable and React keys never collide.
+          setGenerations((prev) => {
+            const seen = new Set(prev.map((g) => g.id));
+            const add = restored.filter((r) => !seen.has(r.id));
+            return [...prev, ...add].sort(
+              (a, b) => (b.createdAt || 0) - (a.createdAt || 0),
+            );
+          });
         })
         .catch(() => {});
     }
@@ -337,7 +362,8 @@ export default function Page() {
   // Persisting a logo to IndexedDB failed. If the device is out of storage, tell
   // the user once (so a logo silently vanishing on reload isn't a mystery).
   function onPersistError(e: unknown) {
-    if (isQuotaError(e) && !quotaWarnedRef.current) {
+    if (isQuotaError(e)) {
+      if (quotaWarnedRef.current) return;
       quotaWarnedRef.current = true;
       toast({
         variant: "destructive",
@@ -345,7 +371,19 @@ export default function Page() {
         description:
           "New logos won't be saved across reloads. Download anything you want to keep, or clear your history.",
       });
+      return;
     }
+    // Any other persistence failure (private mode, blocked IndexedDB, a missing
+    // record): warn once so a logo / favorite / rename silently vanishing on
+    // reload isn't a mystery.
+    if (persistWarnedRef.current) return;
+    persistWarnedRef.current = true;
+    toast({
+      variant: "destructive",
+      title: "Couldn't save to this device",
+      description:
+        "Your logos may not survive a reload here. Download anything you want to keep.",
+    });
   }
 
   function handleApiKeySave(key: string) {
@@ -395,12 +433,19 @@ export default function Page() {
           { id, image, companyName: params.companyName, params, createdAt },
           ...prev,
         ]);
-        fetch(image)
+        // Charge the run's single free credit the moment its FIRST logo lands,
+        // not up front: closing the tab mid-batch then costs nothing.
+        if (!hasOwnKey && !chargedRef.current) {
+          chargedRef.current = true;
+          adjustCredits(-1);
+        }
+        const savePromise = fetch(image)
           .then((r) => r.blob())
           .then((blob) =>
             saveLogo({ id, companyName: params.companyName, params, createdAt, blob }),
           )
           .catch(onPersistError);
+        savePromises.current.set(id, savePromise);
         return { ok: true };
       }
       const text = res.headers.get("Content-Type")?.includes("text/plain")
@@ -415,44 +460,50 @@ export default function Page() {
   // A "run": fire N parallel generations (a set of variations). Costs 1 free
   // credit per run regardless of N; refunded if the entire run fails.
   async function runBatch(params: GenParams, n: number) {
-    if (isGenerating) return;
+    if (runningRef.current) return;
     if (!hasOwnKey && credits <= 0) {
       setApiKeyOpen(true);
       return;
     }
-    setPendingCount(n);
-    setLiveMessage(n > 1 ? `Generating ${n} logos…` : "Generating a logo…");
-    if (!hasOwnKey) adjustCredits(-1);
+    runningRef.current = true;
+    chargedRef.current = false;
+    try {
+      setPendingCount(n);
+      setLiveMessage(n > 1 ? `Generating ${n} logos…` : "Generating a logo…");
 
-    const results = await Promise.all(
-      Array.from({ length: n }, () =>
-        generateOne(params).finally(() =>
-          setPendingCount((c) => Math.max(0, c - 1)),
+      const results = await Promise.all(
+        Array.from({ length: n }, () =>
+          generateOne(params).finally(() =>
+            setPendingCount((c) => Math.max(0, c - 1)),
+          ),
         ),
-      ),
-    );
-    // Safety net: the run is over, so no skeleton can be left stuck (we never
-    // run two batches at once; the guard above blocks that).
-    setPendingCount(0);
+      );
+      // Safety net: the run is over, so no skeleton can be left stuck.
+      setPendingCount(0);
 
-    const oks = results.filter((r) => r.ok).length;
-    setLiveMessage(
-      oks === 0
-        ? "Generation failed."
-        : `${oks} ${oks === 1 ? "logo" : "logos"} ready.`,
-    );
-    if (oks === 0) {
-      if (!hasOwnKey) adjustCredits(1); // refund: nothing came through
-      toast({
-        variant: "destructive",
-        title: "Couldn't generate",
-        description: results.find((r) => r.error)?.error ?? "Please try again.",
-      });
-    } else if (oks < n) {
-      toast({
-        title: `Generated ${oks} of ${n}`,
-        description: "Some variations didn't come through. Vary for more.",
-      });
+      const oks = results.filter((r) => r.ok).length;
+      setLiveMessage(
+        oks === 0
+          ? "Generation failed."
+          : `${oks} ${oks === 1 ? "logo" : "logos"} ready.`,
+      );
+      if (oks === 0) {
+        // Nothing was charged (we only charge on a successful logo), so no
+        // refund needed.
+        toast({
+          variant: "destructive",
+          title: "Couldn't generate",
+          description:
+            results.find((r) => r.error)?.error ?? "Please try again.",
+        });
+      } else if (oks < n) {
+        toast({
+          title: `Generated ${oks} of ${n}`,
+          description: "Some variations didn't come through. Vary for more.",
+        });
+      }
+    } finally {
+      runningRef.current = false;
     }
   }
 
@@ -468,11 +519,12 @@ export default function Page() {
   // typed instruction on failure (nothing more frustrating than losing it).
   async function runEdit(gen: Generation, instruction: string): Promise<boolean> {
     const text = instruction.trim();
-    if (isEditing || !text) return false;
+    if (editingRef.current || !text) return false;
     if (!hasOwnKey && credits <= 0) {
       setApiKeyOpen(true);
       return false;
     }
+    editingRef.current = true;
     setIsEditing(true);
     try {
       // History-restored logos are blob: object URLs the server can't fetch;
@@ -497,12 +549,13 @@ export default function Page() {
         createdAt,
       };
       setGenerations((prev) => [next, ...prev]);
-      fetch(image)
+      const savePromise = fetch(image)
         .then((r) => r.blob())
         .then((blob) =>
           saveLogo({ id, companyName: gen.companyName, params, createdAt, blob }),
         )
         .catch(onPersistError);
+      savePromises.current.set(id, savePromise);
       if (!hasOwnKey) adjustCredits(-1);
       setActiveGen(next); // keep the lightbox on the new result to iterate
       return true;
@@ -521,6 +574,7 @@ export default function Page() {
       return false;
     } finally {
       setIsEditing(false);
+      editingRef.current = false;
     }
   }
 
@@ -543,7 +597,7 @@ export default function Page() {
 
   // "I'm feeling lucky": random style + AI-chosen color, generate immediately.
   function handleLucky() {
-    if (isGenerating) return;
+    if (runningRef.current) return;
     setSelectedStyle(SURPRISE_STYLE);
     setPrimaryColor("auto");
     setActivePreset(null);
@@ -626,16 +680,20 @@ export default function Page() {
     setActiveGen((cur) => (cur && cur.id === id ? { ...cur, ...patch } : cur));
   }
 
-  function toggleFavorite(gen: Generation) {
+  async function toggleFavorite(gen: Generation) {
     const favorite = !gen.favorite;
     updateGen(gen.id, { favorite });
-    patchLogo(gen.id, { favorite }).catch(() => {});
+    // Wait for the logo's own save to land first (a just-generated logo's record
+    // may not exist yet), then persist the change and surface any failure.
+    await savePromises.current.get(gen.id);
+    patchLogo(gen.id, { favorite }).catch(onPersistError);
   }
 
-  function renameLogo(gen: Generation, name: string) {
+  async function renameLogo(gen: Generation, name: string) {
     const trimmed = name.trim();
     updateGen(gen.id, { name: trimmed || undefined });
-    patchLogo(gen.id, { name: trimmed }).catch(() => {});
+    await savePromises.current.get(gen.id);
+    patchLogo(gen.id, { name: trimmed }).catch(onPersistError);
   }
 
   async function handleReferenceFile(file: File) {
@@ -811,7 +869,8 @@ export default function Page() {
       if (gone?.image.startsWith("blob:")) URL.revokeObjectURL(gone.image);
       return prev.filter((g) => g.id !== id);
     });
-    deleteLogo(id).catch(() => {});
+    savePromises.current.delete(id);
+    deleteLogo(id).catch(onPersistError);
   }
 
   function handleClearHistory() {
@@ -838,8 +897,8 @@ export default function Page() {
 
   const creditCaption = hasOwnKey
     ? variationCount > 1
-      ? `Using your key · ~${formatUsd(PRICE_PER_LOGO * variationCount)} / set`
-      : `Using your key · ~${formatUsd(PRICE_PER_LOGO)} / logo`
+      ? `Using your key · ~${formatUsd(pricePerLogo(logoType) * variationCount)} / set`
+      : `Using your key · ~${formatUsd(pricePerLogo(logoType))} / logo`
     : credits > 0
       ? `${credits} free ${credits === 1 ? "credit" : "credits"} left`
       : "Out of free credits";
@@ -1246,6 +1305,7 @@ export default function Page() {
       <GenerationModal
         gen={activeGen}
         editing={isEditing}
+        busy={isGenerating}
         hasOwnKey={hasOwnKey}
         credits={credits}
         onClose={() => setActiveGen(null)}
@@ -1264,6 +1324,7 @@ export default function Page() {
         items={brandKit.items}
         palette={brandKit.palette}
         previews={brandKit.previews}
+        prepareError={brandKit.prepareError}
         phase={brandKit.phase}
         doneCount={brandKit.doneCount}
         total={brandKit.total}
@@ -1272,6 +1333,7 @@ export default function Page() {
         onDiscard={brandKit.discard}
         onDownloadAll={brandKit.downloadAll}
         onBuild={brandKit.build}
+        onRetry={brandKit.retry}
       />
       <BrandKitDock
         gen={brandKit.gen}

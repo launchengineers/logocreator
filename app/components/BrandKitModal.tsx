@@ -56,6 +56,7 @@ export default function BrandKitModal({
   items,
   palette,
   previews,
+  prepareError,
   phase,
   doneCount,
   total,
@@ -64,12 +65,14 @@ export default function BrandKitModal({
   onDiscard,
   onDownloadAll,
   onBuild,
+  onRetry,
 }: {
   open: boolean;
   gen: Generation | null;
   items: BrandKitItem[];
   palette: string[];
   previews: Record<string, string>;
+  prepareError: boolean;
   phase: BrandKitPhase;
   doneCount: number;
   total: number;
@@ -78,6 +81,7 @@ export default function BrandKitModal({
   onDiscard: () => void;
   onDownloadAll: () => void;
   onBuild: (groups: string[]) => void;
+  onRetry: () => void;
 }) {
   // The asset being viewed large (null = none).
   const [zoomed, setZoomed] = useState<BrandKitItem | null>(null);
@@ -114,8 +118,10 @@ export default function BrandKitModal({
           gen={gen}
           items={items}
           previews={previews}
+          prepareError={prepareError}
           onBuild={onBuild}
           onDiscard={onDiscard}
+          onRetry={onRetry}
         />
       ) : gen ? (
         <DialogContent className="flex max-h-[88vh] max-w-4xl flex-col gap-0 overflow-hidden rounded-2xl p-0">
@@ -320,14 +326,18 @@ function ConfigureView({
   gen,
   items,
   previews,
+  prepareError,
   onBuild,
   onDiscard,
+  onRetry,
 }: {
   gen: Generation;
   items: BrandKitItem[];
   previews: Record<string, string>;
+  prepareError: boolean;
   onBuild: (groups: string[]) => void;
   onDiscard: () => void;
+  onRetry: () => void;
 }) {
   const categories = useMemo(() => {
     return GROUP_ORDER.filter((g) => items.some((i) => i.group === g)).map(
@@ -385,9 +395,26 @@ function ConfigureView({
 
       <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
         {!ready ? (
-          <div className="flex h-48 items-center justify-center gap-2 text-sm text-muted-foreground">
-            <Loader2 className="size-4 animate-spin" /> Preparing your assets…
-          </div>
+          prepareError ? (
+            <div className="flex h-48 flex-col items-center justify-center gap-3 px-6 text-center text-sm">
+              <p className="text-muted-foreground">
+                Couldn&apos;t prepare this logo&apos;s assets. The image may have
+                failed to load.
+              </p>
+              <div className="flex gap-2">
+                <Button type="button" variant="secondary" onClick={onDiscard}>
+                  Close
+                </Button>
+                <Button type="button" onClick={onRetry}>
+                  Try again
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex h-48 items-center justify-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="size-4 animate-spin" /> Preparing your assets…
+            </div>
+          )
         ) : (
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {categories.map((cat) => {

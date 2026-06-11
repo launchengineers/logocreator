@@ -83,6 +83,7 @@ function ColorChip({ label, hex }: { label: string; hex: string }) {
 export default function GenerationModal({
   gen,
   editing,
+  busy,
   hasOwnKey,
   credits,
   onClose,
@@ -94,6 +95,7 @@ export default function GenerationModal({
 }: {
   gen: Generation | null;
   editing: boolean;
+  busy: boolean;
   hasOwnKey: boolean;
   credits: number;
   onClose: () => void;
@@ -111,6 +113,12 @@ export default function GenerationModal({
   useEffect(() => {
     setNameDraft(gen?.name || gen?.companyName || "");
   }, [gen?.id, gen?.name, gen?.companyName]);
+
+  // Clear the "keep editing" draft when a DIFFERENT logo opens (keyed on id only,
+  // so a rename re-render doesn't wipe an in-progress instruction).
+  useEffect(() => {
+    setEditText("");
+  }, [gen?.id]);
 
   function commitName() {
     if (!gen) return;
@@ -366,9 +374,12 @@ export default function GenerationModal({
                       SVG
                     </Button>
                   </Tip>
-                  <Tip label="Regenerate from the same settings">
+                  <Tip
+                    label={busy ? "Generating…" : "Regenerate from the same settings"}
+                  >
                     <Button
                       variant="secondary"
+                      disabled={busy}
                       onClick={() => onRegenerate(gen)}
                       className="rounded-lg"
                     >

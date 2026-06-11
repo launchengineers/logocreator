@@ -4,8 +4,20 @@
  * UI always frames them with "~"/"≈".
  */
 
-// FLUX.2-pro ≈ $0.03 per 1024² image.
+// FLUX.2-pro ≈ $0.03 per 1024² image (text-free icon / abstract marks).
 export const PRICE_PER_LOGO = 0.03;
+// Text-bearing types (wordmark / monogram / emblem / icon-name) route to
+// Ideogram for accurate lettering ≈ $0.06 per image.
+export const PRICE_PER_TEXT_LOGO = 0.06;
+
+/** Per-logo estimate for a given logo type (text types cost more on Ideogram). */
+export function pricePerLogo(logoType: string | undefined): number {
+  return ["icon-name", "wordmark", "monogram", "emblem"].includes(
+    logoType ?? "icon-name",
+  )
+    ? PRICE_PER_TEXT_LOGO
+    : PRICE_PER_LOGO;
+}
 
 // FLUX.1-kontext ≈ $0.04 per megapixel (~1 MP per brand-kit asset). The brand
 // kit's only metered work is the AI renders: 5 product mockups, plus up to 4

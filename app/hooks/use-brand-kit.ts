@@ -46,6 +46,8 @@ export type BrandKitController = {
   palette: string[];
   previews: Record<string, string>;
   phase: BrandKitPhase;
+  /** prepare() failed (decode/fetch); the configure step shows an error + retry. */
+  prepareError: boolean;
   doneCount: number;
   total: number;
   zipping: boolean;
@@ -53,6 +55,8 @@ export type BrandKitController = {
   start: (gen: Generation, apiKeyOverride?: string) => void;
   /** Build only the chosen categories (the rest are dropped). */
   build: (selectedGroups: string[]) => void;
+  /** Re-run prepare() for the current logo after a prepare failure. */
+  retry: () => void;
   show: () => void;
   minimize: () => void;
   discard: () => void;
@@ -72,6 +76,7 @@ export function useBrandKit(apiKey: string): BrandKitController {
   const [palette, setPalette] = useState<string[]>([]);
   const [previews, setPreviews] = useState<Record<string, string>>({});
   const [phase, setPhase] = useState<BrandKitPhase>("configure");
+  const [prepareError, setPrepareError] = useState(false);
   const [zipping, setZipping] = useState(false);
 
   const blobs = useRef<Map<string, Blob>>(new Map());
@@ -99,6 +104,7 @@ export function useBrandKit(apiKey: string): BrandKitController {
     setPalette([]);
     setPreviews({});
     setPhase("configure");
+    setPrepareError(false);
   }, [cleanup]);
 
   // Compute the full candidate asset list + palette + previews, WITHOUT building
@@ -106,6 +112,7 @@ export function useBrandKit(apiKey: string): BrandKitController {
   const prepare = useCallback(async (g: Generation, key: string) => {
     const token = tokenRef.current;
     const alive = () => token === tokenRef.current;
+    setPrepareError(false);
     try {
       // History-restored logos are blob: object URLs the server can't fetch;
       // resolve once to a data URL for all server-bound AI assets.
@@ -150,7 +157,16 @@ export function useBrandKit(apiKey: string): BrandKitController {
         }),
       );
     } catch {
-      // loadImage / unexpected failure, leave the kit empty.
+      // toDataUrl / loadImage / decode failure: surface it instead of leaving
+      // the configure spinner hanging forever, and let the user retry.
+      if (alive()) {
+        setPrepareError(true);
+        toast({
+          variant: "destructive",
+          title: "Couldn't prepare this logo's assets",
+          description: "Try again, or close and reopen the brand kit.",
+        });
+      }
     }
   }, []);
 
@@ -241,6 +257,18 @@ export function useBrandKit(apiKey: string): BrandKitController {
   const downloadAll = useCallback(async () => {
     const g = genRef.current;
     if (!g || zipping) return;
+    // Don't hand back a "brand kit" that is only the palette + README because
+    // every asset failed (e.g. a bad key knocked out the AI renders and the
+    // canvas work errored).
+    if (blobs.current.size === 0) {
+      toast({
+        variant: "destructive",
+        title: "Nothing to download yet",
+        description:
+          "No assets were built. Check your API key or connection and try again.",
+      });
+      return;
+    }
     setZipping(true);
     try {
       const files: { path: string; data: Blob | string }[] = [];
@@ -263,6 +291,11 @@ export function useBrandKit(apiKey: string): BrandKitController {
     }
   }, [zipping]);
 
+  const retry = useCallback(() => {
+    const g = genRef.current;
+    if (g) prepare(g, apiKey);
+  }, [apiKey, prepare]);
+
   const show = useCallback(() => setOpen(true), []);
   const minimize = useCallback(() => setOpen(false), []);
 
@@ -273,6 +306,7 @@ export function useBrandKit(apiKey: string): BrandKitController {
     palette,
     previews,
     phase,
+    prepareError,
     // Hidden items (favicon size variants) still build + zip, but aren't shown
     // or counted, so the progress matches the visible tiles.
     doneCount: items.filter((i) => !i.hidden && i.status === "done").length,
@@ -280,6 +314,7 @@ export function useBrandKit(apiKey: string): BrandKitController {
     zipping,
     start,
     build,
+    retry,
     show,
     minimize,
     discard,
