@@ -10,10 +10,22 @@ type Swatch = { name: string; color: string };
 
 // A curated brand-color grid for the "+" popover (more than fits in the row).
 const PALETTE: string[] = [
-  "#2F6FF5", "#19337A", "#0EA5E9", "#14B8A6",
-  "#30A46C", "#84CC16", "#F2C40F", "#E2682A",
-  "#E5484D", "#D9488C", "#7C4DFF", "#9333EA",
-  "#0F172A", "#475569", "#9CA3AF", "#FFFFFF",
+  "#2F6FF5",
+  "#19337A",
+  "#0EA5E9",
+  "#14B8A6",
+  "#30A46C",
+  "#84CC16",
+  "#F2C40F",
+  "#E2682A",
+  "#E5484D",
+  "#D9488C",
+  "#7C4DFF",
+  "#9333EA",
+  "#0F172A",
+  "#475569",
+  "#9CA3AF",
+  "#FFFFFF",
 ];
 
 // Perceived lightness, to choose a legible check-mark color on each swatch.
@@ -141,9 +153,11 @@ export default function ColorSwatches({
           aria-checked={isAuto}
           onClick={() => onChange(AUTO_COLOR)}
           className={cn(
-            "relative flex size-7 items-center justify-center rounded-full bg-secondary",
+            "relative flex size-7 items-center justify-center rounded-full bg-secondary before:absolute before:-inset-y-2 before:content-['']",
             ring,
-            isAuto ? "ring-2 ring-foreground" : "ring-1 ring-foreground/30 hover:ring-foreground/55",
+            isAuto
+              ? "ring-2 ring-foreground"
+              : "ring-1 ring-foreground/30 hover:ring-foreground/55",
           )}
         >
           <Sparkles
@@ -167,15 +181,20 @@ export default function ColorSwatches({
               onClick={() => onChange(swatch.color)}
               style={{ backgroundColor: swatch.color }}
               className={cn(
-                "relative flex size-7 items-center justify-center rounded-full",
+                "relative flex size-7 items-center justify-center rounded-full before:absolute before:-inset-y-2 before:content-['']",
                 ring,
-                selected ? "ring-2 ring-foreground" : "ring-1 ring-foreground/30 hover:ring-foreground/55",
+                selected
+                  ? "ring-2 ring-foreground"
+                  : "ring-1 ring-foreground/30 hover:ring-foreground/55",
               )}
             >
               {selected && (
                 <Check
                   strokeWidth={3.5}
-                  className={cn("size-3.5", isLight(swatch.color) ? "text-black/70" : "text-white")}
+                  className={cn(
+                    "size-3.5",
+                    isLight(swatch.color) ? "text-black/70" : "text-white",
+                  )}
                 />
               )}
             </button>
@@ -203,16 +222,21 @@ export default function ColorSwatches({
               setOpen((o) => !o);
             }}
             className={cn(
-              "relative flex size-7 items-center justify-center overflow-hidden rounded-full",
+              "relative flex size-7 items-center justify-center overflow-hidden rounded-full before:absolute before:-inset-y-2 before:content-['']",
               ring,
-              customSelected ? "ring-2 ring-foreground" : "ring-1 ring-foreground/30 hover:ring-foreground/55",
+              customSelected
+                ? "ring-2 ring-foreground"
+                : "ring-1 ring-foreground/30 hover:ring-foreground/55",
             )}
             style={customSelected ? { backgroundColor: value } : undefined}
           >
             {customSelected ? (
               <Check
                 strokeWidth={3.5}
-                className={cn("size-3.5", isLight(value) ? "text-black/70" : "text-white")}
+                className={cn(
+                  "size-3.5",
+                  isLight(value) ? "text-black/70" : "text-white",
+                )}
               />
             ) : (
               <Plus className="size-3.5 text-muted-foreground" />
@@ -225,7 +249,9 @@ export default function ColorSwatches({
               aria-modal="true"
               aria-label={`${label} colors`}
               onKeyDown={trapTab}
-              className="absolute left-0 top-9 z-50 w-56 rounded-xl border border-border bg-popover p-3 shadow-xl"
+              // Right-anchored (the trigger is the right-most swatch) + width
+              // capped to the viewport so it never spills off a phone screen.
+              className="absolute right-0 top-9 z-50 w-[min(14rem,calc(100vw-2.5rem))] rounded-xl border border-border bg-popover p-3 shadow-xl"
             >
               <div
                 role="radiogroup"
@@ -254,7 +280,10 @@ export default function ColorSwatches({
                       {selected && (
                         <Check
                           strokeWidth={3.5}
-                          className={cn("size-3", isLight(hex) ? "text-black/70" : "text-white")}
+                          className={cn(
+                            "size-3",
+                            isLight(hex) ? "text-black/70" : "text-white",
+                          )}
                         />
                       )}
                     </button>
@@ -294,9 +323,11 @@ export default function ColorSwatches({
                     placeholder="2F6FF5"
                     aria-label={`${label} hex code`}
                     aria-invalid={hexError}
-                    aria-describedby={hexError ? `hex-error-${label}` : undefined}
+                    aria-describedby={
+                      hexError ? `hex-error-${label}` : undefined
+                    }
                     autoFocus
-                    className="w-full bg-transparent py-1.5 text-sm uppercase outline-none placeholder:text-muted-foreground/60"
+                    className="w-full bg-transparent py-1.5 text-base uppercase outline-none placeholder:text-muted-foreground/60 sm:text-sm"
                   />
                 </div>
                 <label

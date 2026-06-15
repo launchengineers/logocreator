@@ -80,7 +80,11 @@ function GenerationCell({
       initial={gen.restored ? false : { opacity: 0, scale: 0.94, y: 12 }}
       animate={{ opacity: 1, scale: 1, y: 0 }}
       exit={{ opacity: 0, scale: 0.94 }}
-      transition={{ duration: 0.38, ease: EASE, delay: Math.min(index, 6) * 0.035 }}
+      transition={{
+        duration: 0.38,
+        ease: EASE,
+        delay: Math.min(index, 6) * 0.035,
+      }}
       onClick={() => onOpen(gen)}
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") {
@@ -111,36 +115,41 @@ function GenerationCell({
         />
       )}
       {/* Favorite star: always visible when favorited, else on hover/focus */}
-      <Tip label={gen.favorite ? "Remove from favorites" : "Add to favorites"} side="right">
+      <Tip
+        label={gen.favorite ? "Remove from favorites" : "Add to favorites"}
+        side="right"
+      >
         <button
           type="button"
           onClick={(e) => {
             e.stopPropagation();
             onToggleFavorite(gen);
           }}
-          aria-label={gen.favorite ? "Remove from favorites" : "Add to favorites"}
+          aria-label={
+            gen.favorite ? "Remove from favorites" : "Add to favorites"
+          }
           aria-pressed={!!gen.favorite}
           className={cn(
-            "absolute left-2 top-2 z-10 flex size-7 items-center justify-center rounded-full border bg-black/45 backdrop-blur-md outline-none transition-all duration-200 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-white/60",
+            "absolute left-2 top-2 z-10 flex size-7 items-center justify-center rounded-full border bg-black/45 outline-none backdrop-blur-md transition-all duration-200 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-white/60 [@media(hover:none)]:size-9",
             gen.favorite
               ? "border-amber-300/40 text-amber-300 opacity-100"
               : // No hover on touch: keep the star reachable there.
-                "border-white/15 text-white/85 opacity-0 hover:text-white group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100",
+                "border-white/15 text-white/85 opacity-0 hover:text-white group-focus-within:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100",
           )}
         >
           <Star className={cn("size-3.5", gen.favorite && "fill-amber-300")} />
         </button>
       </Tip>
       {/* Revealed on hover OR keyboard focus; always visible on touch (no hover there) */}
-      <div className="pointer-events-none absolute inset-0 flex items-end justify-center bg-gradient-to-t from-black/45 via-black/0 to-transparent opacity-0 transition-opacity duration-200 group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100">
-        <div className="pointer-events-auto mb-3 flex items-center gap-0.5 rounded-full border border-white/15 bg-black/55 p-1 backdrop-blur-md">
+      <div className="pointer-events-none absolute inset-0 flex items-end justify-center bg-gradient-to-t from-black/45 via-black/0 to-transparent opacity-0 transition-opacity duration-200 group-focus-within:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100">
+        <div className="pointer-events-auto mb-3 flex items-center gap-1 rounded-full border border-white/15 bg-black/55 p-1 backdrop-blur-md">
           <Tip label="Download PNG">
             <a
               href={gen.image}
               download={`${slugify(gen.companyName)}.png`}
               onClick={(e) => e.stopPropagation()}
               aria-label="Download PNG"
-              className="flex size-8 items-center justify-center rounded-full text-white/90 outline-none transition-colors hover:bg-white/15 focus-visible:bg-white/20 focus-visible:ring-2 focus-visible:ring-white/60"
+              className="flex size-8 items-center justify-center rounded-full text-white/90 outline-none transition-colors hover:bg-white/15 focus-visible:bg-white/20 focus-visible:ring-2 focus-visible:ring-white/60 [@media(hover:none)]:size-9"
             >
               <Download className="size-4" />
             </a>
@@ -153,7 +162,7 @@ function GenerationCell({
                 onCreateBrandKit(gen);
               }}
               aria-label="Create brand kit"
-              className="flex size-8 items-center justify-center rounded-full text-white/90 outline-none transition-colors hover:bg-white/15 focus-visible:bg-white/20 focus-visible:ring-2 focus-visible:ring-white/60"
+              className="flex size-8 items-center justify-center rounded-full text-white/90 outline-none transition-colors hover:bg-white/15 focus-visible:bg-white/20 focus-visible:ring-2 focus-visible:ring-white/60 [@media(hover:none)]:size-9"
             >
               <Sparkles className="size-4" />
             </button>
@@ -167,7 +176,7 @@ function GenerationCell({
                 onVary(gen);
               }}
               aria-label="Make variations of this logo"
-              className="flex size-8 items-center justify-center rounded-full text-white/90 outline-none transition-colors hover:bg-white/15 focus-visible:bg-white/20 focus-visible:ring-2 focus-visible:ring-white/60 disabled:pointer-events-none disabled:opacity-40"
+              className="flex size-8 items-center justify-center rounded-full text-white/90 outline-none transition-colors hover:bg-white/15 focus-visible:bg-white/20 focus-visible:ring-2 focus-visible:ring-white/60 disabled:pointer-events-none disabled:opacity-40 [@media(hover:none)]:size-9"
             >
               <RefreshCw className="size-4" />
             </button>
@@ -196,7 +205,7 @@ export default function Gallery({
   if (generations.length === 0 && pendingCount === 0) {
     return (
       <div className="flex h-full min-h-[16rem] flex-col items-center justify-center px-8 py-16 text-center">
-        <LogoMark className="size-12 animate-pulse-soft opacity-25" />
+        <LogoMark className="animate-pulse-soft size-12 opacity-25" />
         <h2 className="mt-5 text-lg font-bold text-foreground">
           Your logos will appear here
         </h2>

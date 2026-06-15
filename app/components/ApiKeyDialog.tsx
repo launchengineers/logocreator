@@ -77,7 +77,7 @@ export default function ApiKeyDialog({
           <button
             type="button"
             aria-label="Together AI key"
-            className="relative flex size-9 items-center justify-center rounded-full border border-border/70 text-muted-foreground transition-colors hover:border-border hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+            className="relative flex size-10 items-center justify-center rounded-full border border-border/70 text-muted-foreground transition-colors hover:border-border hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background sm:size-9"
           >
             <KeyRound className="size-[1.05rem]" />
             {hasKey && (
@@ -105,7 +105,12 @@ export default function ApiKeyDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <ApiKeyForm value={draft} onChange={setDraft} onSubmit={save} autoFocus />
+        <ApiKeyForm
+          value={draft}
+          onChange={setDraft}
+          onSubmit={save}
+          autoFocus
+        />
 
         <div className="flex items-center gap-2">
           {hasKey && (

@@ -63,7 +63,8 @@ export default function BrandImport({
         setPickOpen(false);
       }
     };
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setPickOpen(false);
+    const onKey = (e: KeyboardEvent) =>
+      e.key === "Escape" && setPickOpen(false);
     document.addEventListener("mousedown", onDown);
     document.addEventListener("keydown", onKey);
     return () => {
@@ -190,7 +191,7 @@ export default function BrandImport({
               aria-haspopup="dialog"
               aria-expanded={pickOpen}
               title={`Brand color ${imported.color} (click to re-pick)`}
-              className="flex size-6 items-center justify-center rounded-full outline-none ring-offset-2 ring-offset-card focus-visible:ring-2 focus-visible:ring-ring"
+              className="relative flex size-6 items-center justify-center rounded-full outline-none ring-offset-2 ring-offset-card before:absolute before:-inset-2 before:content-[''] focus-visible:ring-2 focus-visible:ring-ring"
             >
               <span
                 className="size-5 rounded-full ring-1 ring-foreground/20"
@@ -204,10 +205,13 @@ export default function BrandImport({
                 aria-label="Detected brand colors"
                 className="absolute right-0 top-8 z-50 w-44 rounded-xl border border-border bg-popover p-2.5 shadow-xl"
               >
-                <span className="label-eyebrow mb-2 block">Detected colors</span>
+                <span className="label-eyebrow mb-2 block">
+                  Detected colors
+                </span>
                 <div className="grid grid-cols-6 gap-1.5">
                   {imported.palette.map((hex) => {
-                    const selected = hex.toLowerCase() === imported.color.toLowerCase();
+                    const selected =
+                      hex.toLowerCase() === imported.color.toLowerCase();
                     return (
                       <button
                         key={hex}
@@ -253,7 +257,7 @@ export default function BrandImport({
               onClear();
             }}
             aria-label="Remove imported brand"
-            className="flex size-6 shrink-0 items-center justify-center rounded-full text-muted-foreground outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+            className="relative flex size-6 shrink-0 items-center justify-center rounded-full text-muted-foreground outline-none transition-colors before:absolute before:-inset-2 before:content-[''] hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
           >
             <X className="size-3.5" />
           </button>
@@ -280,7 +284,7 @@ export default function BrandImport({
                 spellCheck={false}
                 disabled={busy}
                 aria-label="Your website URL"
-                className="w-full bg-transparent py-2 text-sm outline-none placeholder:text-muted-foreground/60"
+                className="w-full bg-transparent py-2 text-base outline-none placeholder:text-muted-foreground/60 sm:text-sm"
               />
             </div>
             <button
@@ -289,21 +293,33 @@ export default function BrandImport({
               disabled={busy || !url.trim()}
               className="flex shrink-0 items-center gap-1.5 rounded-lg bg-foreground px-3 text-xs font-semibold text-background outline-none transition-opacity hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {loading === "url" && <Loader2 className="size-3.5 animate-spin" />}
+              {loading === "url" && (
+                <Loader2 className="size-3.5 animate-spin" />
+              )}
               Import
             </button>
           </div>
           {/* Long scrapes (up to 15s) read as frozen without a progress line. */}
           {loading === "url" && (
-            <p className="mt-1.5 text-xs text-muted-foreground" aria-live="polite">
-              Reading {url.trim().replace(/^https?:\/\//, "").split("/")[0]}…
+            <p
+              className="mt-1.5 text-xs text-muted-foreground"
+              aria-live="polite"
+            >
+              Reading{" "}
+              {
+                url
+                  .trim()
+                  .replace(/^https?:\/\//, "")
+                  .split("/")[0]
+              }
+              …
             </p>
           )}
           <button
             type="button"
             onClick={() => fileRef.current?.click()}
             disabled={busy}
-            className="mt-1.5 flex items-center gap-1 rounded text-xs text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+            className="mt-1.5 flex items-center gap-1 rounded py-1.5 text-xs text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
           >
             {loading === "file" ? (
               <Loader2 className="size-3 animate-spin" />

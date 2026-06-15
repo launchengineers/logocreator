@@ -57,7 +57,7 @@ export default function WelcomeModal({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-3xl gap-0 overflow-hidden rounded-2xl border-0 p-0 ring-1 ring-border sm:rounded-2xl">
-        <div className="relative flex min-h-[34rem] items-center justify-center p-6 sm:p-10">
+        <div className="relative flex min-h-[26rem] items-center justify-center p-5 sm:min-h-[34rem] sm:p-10">
           <DiagonalShowcase />
           <div className="relative w-full max-w-sm rounded-2xl border border-border/60 bg-background/80 p-8 text-center shadow-2xl backdrop-blur-xl">
             <LogoMark className="mx-auto size-11" />

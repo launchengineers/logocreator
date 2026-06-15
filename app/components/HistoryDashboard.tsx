@@ -32,7 +32,9 @@ function startOfDay(ts: number): number {
 
 function dateLabel(ts: number | undefined): string {
   if (!ts) return "Earlier";
-  const diffDays = Math.round((startOfDay(Date.now()) - startOfDay(ts)) / 86400000);
+  const diffDays = Math.round(
+    (startOfDay(Date.now()) - startOfDay(ts)) / 86400000,
+  );
   if (diffDays <= 0) return "Today";
   if (diffDays === 1) return "Yesterday";
   const d = new Date(ts);
@@ -97,13 +99,13 @@ export default function HistoryDashboard({
         }
       }}
     >
-      <DialogContent className="flex h-[88vh] max-w-5xl flex-col gap-0 overflow-hidden rounded-2xl p-0">
+      <DialogContent className="flex h-[88svh] max-w-5xl flex-col gap-0 overflow-hidden rounded-2xl p-0">
         <DialogHeader className="flex-row items-center justify-between gap-3 space-y-0 border-b border-border px-6 py-5 pr-12 text-left">
           <div>
             <DialogTitle className="text-lg">Your logo history</DialogTitle>
             <DialogDescription>
-              {generations.length}{" "}
-              {generations.length === 1 ? "logo" : "logos"} saved on this device.
+              {generations.length} {generations.length === 1 ? "logo" : "logos"}{" "}
+              saved on this device.
             </DialogDescription>
           </div>
           {generations.length > 0 && (
@@ -231,7 +233,7 @@ function HistoryTile({
   }
 
   const pill =
-    "flex size-7 items-center justify-center rounded-full bg-black/45 text-white/90 outline-none backdrop-blur-sm transition-colors hover:bg-black/65 focus-visible:ring-2 focus-visible:ring-white/60";
+    "flex size-7 items-center justify-center rounded-full bg-black/45 text-white/90 outline-none backdrop-blur-sm transition-colors hover:bg-black/65 focus-visible:ring-2 focus-visible:ring-white/60 [@media(hover:none)]:size-8";
 
   return (
     <div
@@ -264,15 +266,15 @@ function HistoryTile({
         aria-pressed={!!gen.favorite}
         title={gen.favorite ? "Favorited" : "Favorite"}
         className={cn(
-          "absolute left-2 top-2 z-20 flex size-6 items-center justify-center rounded-full bg-black/45 backdrop-blur-sm outline-none transition-all focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-white/60",
+          "absolute left-2 top-2 z-20 flex size-6 items-center justify-center rounded-full bg-black/45 outline-none backdrop-blur-sm transition-all focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-white/60 [@media(hover:none)]:size-8",
           gen.favorite
             ? "text-amber-300 opacity-100"
-            : "text-white/85 opacity-0 hover:text-white group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100",
+            : "text-white/85 opacity-0 hover:text-white group-focus-within:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100",
         )}
       >
         <Star className={cn("size-3", gen.favorite && "fill-amber-300")} />
       </button>
-      <div className="pointer-events-none absolute inset-0 flex flex-col justify-between bg-gradient-to-t from-black/65 via-black/0 to-black/10 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100">
+      <div className="pointer-events-none absolute inset-0 flex flex-col justify-between bg-gradient-to-t from-black/65 via-black/0 to-black/10 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100">
         <div className="pointer-events-auto flex items-start justify-between gap-1 p-2 pl-9">
           <span className="truncate rounded bg-black/45 px-1.5 py-0.5 text-[0.65rem] font-medium text-white backdrop-blur-sm">
             {displayName}
@@ -289,7 +291,7 @@ function HistoryTile({
             aria-label={confirmDel ? "Confirm delete" : "Delete"}
             title={confirmDel ? "Click again to delete" : "Delete"}
             className={cn(
-              "flex size-6 shrink-0 items-center justify-center rounded-full text-white/90 backdrop-blur-sm transition-colors",
+              "flex size-6 shrink-0 items-center justify-center rounded-full text-white/90 backdrop-blur-sm transition-colors [@media(hover:none)]:size-8",
               confirmDel ? "bg-destructive" : "bg-black/45 hover:bg-black/65",
             )}
           >

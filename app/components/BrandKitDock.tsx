@@ -39,7 +39,7 @@ export default function BrandKitDock({
           animate={{ opacity: 1, y: 0, scale: 1 }}
           exit={{ opacity: 0, y: 24, scale: 0.96 }}
           transition={{ duration: 0.38, ease: [0.22, 1, 0.36, 1] }}
-          className="fixed bottom-[4.5rem] right-4 z-40 md:right-6"
+          className="fixed bottom-[calc(4.5rem+env(safe-area-inset-bottom))] right-[calc(1rem+env(safe-area-inset-right))] z-40 md:right-6"
         >
           <div className="group relative">
             <button
@@ -68,7 +68,7 @@ export default function BrandKitDock({
               type="button"
               onClick={onDiscard}
               aria-label="Discard brand kit"
-              className="absolute -right-1.5 -top-1.5 flex size-5 items-center justify-center rounded-full border border-border bg-background text-muted-foreground opacity-0 shadow-md transition-all hover:text-destructive focus-visible:opacity-100 group-hover:opacity-100"
+              className="absolute -right-1.5 -top-1.5 flex size-7 items-center justify-center rounded-full border border-border bg-background text-muted-foreground opacity-0 shadow-md transition-all hover:text-destructive focus-visible:opacity-100 group-hover:opacity-100 sm:size-5 [@media(hover:none)]:opacity-100"
             >
               <X className="size-3" strokeWidth={2.5} />
             </button>

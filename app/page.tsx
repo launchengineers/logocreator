@@ -231,7 +231,7 @@ function XLogo({ className }: { className?: string }) {
 // One chrome icon-button treatment, shared by the header row and the footer
 // social row so they read as siblings (same size, border and hover).
 const socialLink =
-  "flex size-9 items-center justify-center rounded-full border border-border/70 text-muted-foreground transition-colors hover:border-border hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background";
+  "flex size-10 items-center justify-center rounded-full border border-border/70 text-muted-foreground transition-colors hover:border-border hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background sm:size-9";
 
 export default function Page() {
   // Inputs
@@ -1076,7 +1076,7 @@ export default function Page() {
                 <div
                   role="group"
                   aria-label="Quick start presets"
-                  className="scroll-fade-x -mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1 pr-7 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+                  className="scroll-fade-x -mx-1 flex gap-1.5 overflow-x-auto overscroll-x-contain px-1 pb-1 pr-7 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
                 >
                   {STARTER_PRESETS.map((p) => {
                     const Icon = p.icon;
@@ -1134,7 +1134,7 @@ export default function Page() {
                   <div
                     role="group"
                     aria-label="Description suggestions"
-                    className="scroll-fade-x -mx-1 mt-2 flex gap-1.5 overflow-x-auto px-1 pb-0.5 pr-7 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+                    className="scroll-fade-x -mx-1 mt-2 flex gap-1.5 overflow-x-auto overscroll-x-contain px-1 pb-0.5 pr-7 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
                   >
                     {DESCRIBE_SUGGESTIONS.map((s) => (
                       <button
@@ -1142,7 +1142,7 @@ export default function Page() {
                         type="button"
                         onClick={() => setAdditionalInfo(s)}
                         title={s}
-                        className="shrink-0 whitespace-nowrap rounded-full border border-border bg-background px-2.5 py-1 text-[0.7rem] text-muted-foreground transition-colors hover:border-primary/40 hover:bg-primary/5 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-card"
+                        className="shrink-0 whitespace-nowrap rounded-full border border-border bg-background px-2.5 py-1.5 text-[0.7rem] text-muted-foreground transition-colors hover:border-primary/40 hover:bg-primary/5 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-card sm:py-1"
                       >
                         {s.length > 24 ? s.slice(0, 22) + "…" : s}
                       </button>
@@ -1316,7 +1316,7 @@ export default function Page() {
             <div className="space-y-3 border-t border-border px-5 py-4">
               <div className="flex items-center justify-between gap-3">
                 <span className="label-eyebrow">Variations</span>
-                <div className="w-[7rem]">
+                <div className="w-36 md:w-[7rem]">
                   <Segmented
                     options={["1", "2", "4"]}
                     value={String(variationCount)}
@@ -1424,7 +1424,7 @@ export default function Page() {
         </footer>
 
         {/* ── Gallery ───────────────────────────────────── */}
-        <main className="area-gallery relative min-h-0 overflow-y-auto border-b border-border/60 md:border-b-0">
+        <main className="area-gallery relative min-h-0 border-b border-border/60 md:overflow-y-auto md:border-b-0">
           <Gallery
             generations={generations}
             pendingCount={pendingCount}
@@ -1460,9 +1460,11 @@ export default function Page() {
         doneCount={brandKit.doneCount}
         total={brandKit.total}
         zipping={brandKit.zipping}
+        guiding={brandKit.guiding}
         onMinimize={brandKit.minimize}
         onDiscard={brandKit.discard}
         onDownloadAll={brandKit.downloadAll}
+        onDownloadGuide={brandKit.downloadGuide}
         onBuild={brandKit.build}
         onRetry={brandKit.retry}
       />

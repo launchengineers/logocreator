@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import localFont from "next/font/local";
 import "./globals.css";
 import { ClerkProvider } from "@clerk/nextjs";
@@ -44,6 +44,17 @@ export const metadata: Metadata = {
     title,
     description,
   },
+};
+
+// viewport-fit=cover lets env(safe-area-inset-*) resolve to real values on
+// notched/gesture phones (otherwise they're 0); themeColor tints the mobile
+// browser chrome to match the app's light/dark background.
+export const viewport: Viewport = {
+  themeColor: [
+    { media: "(prefers-color-scheme: dark)", color: "#0c0c0b" },
+    { media: "(prefers-color-scheme: light)", color: "#faf9f6" },
+  ],
+  viewportFit: "cover",
 };
 
 export default function RootLayout({
