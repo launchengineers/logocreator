@@ -1,4 +1,3 @@
-
 /**
  * Brand-kit primitives. Deterministic, client-side (canvas) asset builders +
  * palette extraction + zip packaging. The modal orchestrates these so it can
@@ -95,7 +94,9 @@ export function makeTransparent(
   const tol = tolerance * 3; // sum over 3 channels
   const tolSoft = tol * 2.1; // wider band for the feathered edge
   const dist = (p: number) =>
-    Math.abs(d[p * 4] - br) + Math.abs(d[p * 4 + 1] - bg) + Math.abs(d[p * 4 + 2] - bb);
+    Math.abs(d[p * 4] - br) +
+    Math.abs(d[p * 4 + 1] - bg) +
+    Math.abs(d[p * 4 + 2] - bb);
 
   // Flood fill from the borders over pixels within the hard tolerance. The
   // stack is a preallocated typed array (each pixel enters at most once via
@@ -334,7 +335,10 @@ export function extractPalette(img: HTMLImageElement, count = 6): string[] {
   ctx.drawImage(img, 0, 0, w, h);
   const d = ctx.getImageData(0, 0, w, h).data;
 
-  const buckets = new Map<string, { n: number; r: number; g: number; b: number }>();
+  const buckets = new Map<
+    string,
+    { n: number; r: number; g: number; b: number }
+  >();
   for (let i = 0; i < d.length; i += 4) {
     if (d[i + 3] < 128) continue;
     const r = d[i];
@@ -363,7 +367,9 @@ export function extractPalette(img: HTMLImageElement, count = 6): string[] {
     if (
       picked.every(
         (p) =>
-          Math.abs(p.r - col.r) + Math.abs(p.g - col.g) + Math.abs(p.b - col.b) >
+          Math.abs(p.r - col.r) +
+            Math.abs(p.g - col.g) +
+            Math.abs(p.b - col.b) >
           40,
       )
     ) {
@@ -373,7 +379,9 @@ export function extractPalette(img: HTMLImageElement, count = 6): string[] {
   return picked.map(
     (col) =>
       "#" +
-      [col.r, col.g, col.b].map((x) => x.toString(16).padStart(2, "0")).join(""),
+      [col.r, col.g, col.b]
+        .map((x) => x.toString(16).padStart(2, "0"))
+        .join(""),
   );
 }
 
@@ -402,7 +410,14 @@ export function extractBrandPalette(
   // Per hue bin: a saturation²-weighted running average (the swatch shown,
   // resistant to single anti-aliased outlier pixels), the peak saturation
   // (how vivid this hue gets) and the pixel count (how much area it covers).
-  type Bin = { n: number; s: number; wr: number; wg: number; wb: number; w: number };
+  type Bin = {
+    n: number;
+    s: number;
+    wr: number;
+    wg: number;
+    wb: number;
+    w: number;
+  };
   const bins = new Map<number, Bin>();
   let darkN = 0;
   let lightN = 0;
@@ -424,7 +439,7 @@ export function extractBrandPalette(
     }
     let hue: number;
     if (mx === mn) hue = 0;
-    else if (mx === r) hue = (((g - b) / (mx - mn)) % 6 + 6) % 6;
+    else if (mx === r) hue = ((((g - b) / (mx - mn)) % 6) + 6) % 6;
     else if (mx === g) hue = (b - r) / (mx - mn) + 2;
     else hue = (r - g) / (mx - mn) + 4;
     hue = (hue * 60 + 360) % 360;
@@ -471,7 +486,10 @@ export function kitPalette(img: HTMLImageElement, count = 6): string[] {
       48
     );
   };
-  for (const hex of [...extractBrandPalette(img, 4), ...extractPalette(img, count)]) {
+  for (const hex of [
+    ...extractBrandPalette(img, 4),
+    ...extractPalette(img, count),
+  ]) {
     if (out.length >= count) break;
     if (!out.some((seen) => close(seen, hex))) out.push(hex.toUpperCase());
   }
@@ -491,7 +509,11 @@ function rgbToHex(r: number, g: number, b: number): string {
   return (
     "#" +
     [r, g, b]
-      .map((x) => Math.max(0, Math.min(255, Math.round(x))).toString(16).padStart(2, "0"))
+      .map((x) =>
+        Math.max(0, Math.min(255, Math.round(x)))
+          .toString(16)
+          .padStart(2, "0"),
+      )
       .join("")
   );
 }
@@ -539,12 +561,21 @@ function saturation({ r, g, b }: { r: number; g: number; b: number }): number {
 /** Black or white text that reads on the given background. */
 export function bestTextColor(hex: string): string {
   const { r, g, b } = hexToRgb(hex);
-  return (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.62 ? "#121212" : "#ffffff";
+  return (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.62
+    ? "#121212"
+    : "#ffffff";
 }
 /** A strong brand color: the picked primary if it's a real hex, else the most
  *  saturated mid-tone from the palette, else a sensible blue. */
-export function pickBrandColor(primaryColor: string, palette: string[]): string {
-  if (primaryColor && primaryColor !== "auto" && /^#?[0-9a-f]{6}$/i.test(primaryColor)) {
+export function pickBrandColor(
+  primaryColor: string,
+  palette: string[],
+): string {
+  if (
+    primaryColor &&
+    primaryColor !== "auto" &&
+    /^#?[0-9a-f]{6}$/i.test(primaryColor)
+  ) {
     return primaryColor.startsWith("#") ? primaryColor : `#${primaryColor}`;
   }
   const strong = palette
@@ -612,7 +643,10 @@ function roundRectPath(
 }
 
 /** A transparent canvas with centered monogram initials in `color`. */
-export function monogramGlyph(initials: string, color: string): HTMLCanvasElement {
+export function monogramGlyph(
+  initials: string,
+  color: string,
+): HTMLCanvasElement {
   const size = 1024;
   const c = document.createElement("canvas");
   c.width = size;
@@ -654,14 +688,24 @@ export function tileWith(
   const sh = (source as HTMLImageElement).naturalHeight || source.height;
   const avail = size * (1 - pad);
   const sc = avail / Math.max(sw, sh);
-  ctx.drawImage(source, (size - sw * sc) / 2, (size - sh * sc) / 2, sw * sc, sh * sc);
+  ctx.drawImage(
+    source,
+    (size - sw * sc) / 2,
+    (size - sh * sc) / 2,
+    sw * sc,
+    sh * sc,
+  );
   return c;
 }
 
 /** A smooth diagonal brand gradient canvas. The endpoints are derived in HSL
  *  with a guaranteed minimum lightness spread, so a near-black or near-white
  *  brand color still yields a visible gradient instead of a flat rectangle. */
-export function gradientCanvas(w: number, h: number, hex: string): HTMLCanvasElement {
+export function gradientCanvas(
+  w: number,
+  h: number,
+  hex: string,
+): HTMLCanvasElement {
   const c = document.createElement("canvas");
   c.width = w;
   c.height = h;
@@ -699,7 +743,13 @@ function placeContained(
   const sh = (source as HTMLImageElement).naturalHeight || source.height;
   const avail = Math.min(W, H) * maxFrac;
   const sc = avail / Math.max(sw, sh);
-  ctx.drawImage(source, cx * W - (sw * sc) / 2, cy * H - (sh * sc) / 2, sw * sc, sh * sc);
+  ctx.drawImage(
+    source,
+    cx * W - (sw * sc) / 2,
+    cy * H - (sh * sc) / 2,
+    sw * sc,
+    sh * sc,
+  );
   return bgCanvas;
 }
 
@@ -925,7 +975,8 @@ export function iconMark(
       ? monogramGlyph(initialsFrom(companyName), brandColor)
       : transFull;
   }
-  if (logoType === "icon-name") return extractIconRegion(transFull) ?? transFull;
+  if (logoType === "icon-name")
+    return extractIconRegion(transFull) ?? transFull;
   // icon / abstract / emblem / monogram → the mark itself is the icon.
   return transFull;
 }
@@ -954,6 +1005,14 @@ export function categoryPreviews(
   const u = (c: HTMLCanvasElement) => c.toDataURL("image/png");
   const W = 320;
   const H = 240;
+  // Downscale a full 1600x1200 mockup scene to a preview tile.
+  const scenePreview = (big: HTMLCanvasElement) => {
+    const c = document.createElement("canvas");
+    c.width = W;
+    c.height = H;
+    c.getContext("2d")!.drawImage(big, 0, 0, W, H);
+    return u(c);
+  };
   return {
     "Logo variants": u(scaleOnto(full, W, H, "#0c0c0b", 0.18)),
     "Logo lockups": u(scaleOnto(full, W, H, "#ffffff", 0.16)),
@@ -963,6 +1022,7 @@ export function categoryPreviews(
     "Web & social": cutoutOk
       ? u(onGradient(full, W, H, brandColor, 0.44, 0.5, 0.5))
       : u(onSolid(full, W, H, "#ffffff", 0.42)),
+    "Product mockups": scenePreview(businessCardScene(full, brandColor)),
     Mockups: u(onSolid(full, W, H, "#d8d4cc", 0.34)),
   };
 }
@@ -1030,7 +1090,13 @@ export function deterministicAssetSpecs(
         name: "Monochrome black",
         filename: "variants/monochrome-black.png",
         build: png(
-          scaleOnto(recolor(transFull, "#000000", true), 1024, 1024, null, 0.08),
+          scaleOnto(
+            recolor(transFull, "#000000", true),
+            1024,
+            1024,
+            null,
+            0.08,
+          ),
         ),
       },
       {
@@ -1038,7 +1104,13 @@ export function deterministicAssetSpecs(
         name: "Monochrome white",
         filename: "variants/monochrome-white.png",
         build: png(
-          scaleOnto(recolor(transFull, "#ffffff", true), 1024, 1024, null, 0.08),
+          scaleOnto(
+            recolor(transFull, "#ffffff", true),
+            1024,
+            1024,
+            null,
+            0.08,
+          ),
         ),
       },
       {
@@ -1074,7 +1146,13 @@ export function deterministicAssetSpecs(
           name: "Monochrome black",
           filename: "variants/monochrome-black.png",
           build: png(
-            scaleOnto(recolor(keyedCrop, "#000000", true), 1024, 1024, null, 0.08),
+            scaleOnto(
+              recolor(keyedCrop, "#000000", true),
+              1024,
+              1024,
+              null,
+              0.08,
+            ),
           ),
         },
         {
@@ -1082,7 +1160,13 @@ export function deterministicAssetSpecs(
           name: "Monochrome white",
           filename: "variants/monochrome-white.png",
           build: png(
-            scaleOnto(recolor(keyedCrop, "#ffffff", true), 1024, 1024, null, 0.08),
+            scaleOnto(
+              recolor(keyedCrop, "#ffffff", true),
+              1024,
+              1024,
+              null,
+              0.08,
+            ),
           ),
         },
       );
@@ -1136,7 +1220,9 @@ export function deterministicAssetSpecs(
       group: "Web & social",
       name: "Open Graph",
       filename: "social/og-1200x630.png",
-      build: png(onSolid(fullForComposite, 1200, 630, shade(brandColor, 0.93), 0.46)),
+      build: png(
+        onSolid(fullForComposite, 1200, 630, shade(brandColor, 0.93), 0.46),
+      ),
     },
     {
       group: "Web & social",
@@ -1158,7 +1244,339 @@ export function deterministicAssetSpecs(
     },
   ];
 
-  return [...variants, ...icons, ...social];
+  const scenes = mockupScenes(img, transFull, cutoutOk, ctx);
+  return [...variants, ...icons, ...social, ...scenes];
+}
+
+// ── Product mockups (deterministic illustrated scenes) ──────────────────
+// The logo composited onto clean, flat vector scenes drawn entirely on canvas:
+// no photos, no AI, no licensing, and fully repeatable. Every scene places the
+// logo on a LIGHT surface (card, screen, panel, garment) so it reads whether or
+// not the background could be keyed out, while brand color carries the
+// surrounding elements. A free counterpart to the AI "Mockups" product shots.
+
+type Drawable = HTMLImageElement | HTMLCanvasElement;
+
+function drawContained(
+  ctx: CanvasRenderingContext2D,
+  source: Drawable,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+) {
+  const sw = (source as HTMLImageElement).naturalWidth || source.width;
+  const sh = (source as HTMLImageElement).naturalHeight || source.height;
+  const sc = Math.min(w / sw, h / sh);
+  const dw = sw * sc;
+  const dh = sh * sc;
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(source, x + (w - dw) / 2, y + (h - dh) / 2, dw, dh);
+}
+
+const SCENE_W = 1600;
+const SCENE_H = 1200;
+
+function sceneCanvas(bg: string): {
+  c: HTMLCanvasElement;
+  ctx: CanvasRenderingContext2D;
+} {
+  const c = document.createElement("canvas");
+  c.width = SCENE_W;
+  c.height = SCENE_H;
+  const ctx = c.getContext("2d")!;
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, SCENE_W, SCENE_H);
+  return { c, ctx };
+}
+
+function withShadow(
+  ctx: CanvasRenderingContext2D,
+  blur: number,
+  dy: number,
+  fn: () => void,
+  alpha = 0.18,
+) {
+  ctx.save();
+  ctx.shadowColor = `rgba(20,18,15,${alpha})`;
+  ctx.shadowBlur = blur;
+  ctx.shadowOffsetY = dy;
+  fn();
+  ctx.restore();
+}
+
+function businessCardScene(logo: Drawable, brand: string): HTMLCanvasElement {
+  const { c, ctx } = sceneCanvas(shade(brand, 0.92));
+  const cw = 760;
+  const ch = 470;
+  const r = 30;
+  const cx = SCENE_W / 2;
+  const cy = SCENE_H / 2;
+  // Brand card behind (offset up-left) for depth.
+  withShadow(ctx, 55, 26, () => {
+    roundRectPath(ctx, cx - cw / 2 - 64, cy - ch / 2 - 64, cw, ch, r);
+    ctx.fillStyle = brand;
+    ctx.fill();
+  });
+  // White card in front (offset down-right) carrying the logo.
+  const fx = cx - cw / 2 + 64;
+  const fy = cy - ch / 2 + 64;
+  withShadow(
+    ctx,
+    70,
+    34,
+    () => {
+      roundRectPath(ctx, fx, fy, cw, ch, r);
+      ctx.fillStyle = "#ffffff";
+      ctx.fill();
+    },
+    0.24,
+  );
+  drawContained(
+    ctx,
+    logo,
+    fx + cw * 0.17,
+    fy + ch * 0.22,
+    cw * 0.66,
+    ch * 0.56,
+  );
+  return c;
+}
+
+function tshirtScene(logo: Drawable, brand: string): HTMLCanvasElement {
+  const { c, ctx } = sceneCanvas(shade(brand, 0.9));
+  const cx = SCENE_W / 2;
+  const topY = 250;
+  withShadow(ctx, 50, 24, () => {
+    ctx.beginPath();
+    ctx.moveTo(cx - 150, topY + 36);
+    ctx.lineTo(cx - 312, topY + 120);
+    ctx.lineTo(cx - 250, topY + 268);
+    ctx.lineTo(cx - 182, topY + 226);
+    ctx.lineTo(cx - 182, topY + 660);
+    ctx.lineTo(cx + 182, topY + 660);
+    ctx.lineTo(cx + 182, topY + 226);
+    ctx.lineTo(cx + 250, topY + 268);
+    ctx.lineTo(cx + 312, topY + 120);
+    ctx.lineTo(cx + 150, topY + 36);
+    ctx.quadraticCurveTo(cx, topY + 116, cx - 150, topY + 36);
+    ctx.closePath();
+    ctx.fillStyle = "#e9e7e2"; // light heather so any logo reads
+    ctx.fill();
+  });
+  // Collar inner shading.
+  ctx.beginPath();
+  ctx.moveTo(cx - 150, topY + 36);
+  ctx.quadraticCurveTo(cx, topY + 92, cx + 150, topY + 36);
+  ctx.quadraticCurveTo(cx, topY + 128, cx - 150, topY + 36);
+  ctx.closePath();
+  ctx.fillStyle = "rgba(20,18,15,0.06)";
+  ctx.fill();
+  drawContained(ctx, logo, cx - 150, topY + 230, 300, 240);
+  return c;
+}
+
+function browserScene(logo: Drawable, brand: string): HTMLCanvasElement {
+  const { c, ctx } = sceneCanvas(shade(brand, 0.92));
+  const w = 1200;
+  const h = 800;
+  const x = (SCENE_W - w) / 2;
+  const y = (SCENE_H - h) / 2;
+  const r = 26;
+  withShadow(
+    ctx,
+    70,
+    34,
+    () => {
+      roundRectPath(ctx, x, y, w, h, r);
+      ctx.fillStyle = "#ffffff";
+      ctx.fill();
+    },
+    0.2,
+  );
+  // Top chrome bar.
+  ctx.save();
+  roundRectPath(ctx, x, y, w, h, r);
+  ctx.clip();
+  ctx.fillStyle = "#f1efea";
+  ctx.fillRect(x, y, w, 72);
+  ctx.fillStyle = "#e6e3dd";
+  [0, 1, 2].forEach((i) => {
+    ctx.beginPath();
+    ctx.arc(x + 40 + i * 34, y + 36, 9, 0, Math.PI * 2);
+    ctx.fill();
+  });
+  roundRectPath(ctx, x + 150, y + 22, w - 230, 30, 15);
+  ctx.fillStyle = "#ffffff";
+  ctx.fill();
+  ctx.restore();
+  // Hero logo + faux tagline + brand button.
+  drawContained(ctx, logo, x + w * 0.3, y + 150, w * 0.4, 260);
+  ctx.fillStyle = "#e7e4de";
+  roundRectPath(ctx, x + w / 2 - 220, y + 470, 440, 20, 10);
+  ctx.fill();
+  roundRectPath(ctx, x + w / 2 - 150, y + 510, 300, 20, 10);
+  ctx.fill();
+  withShadow(ctx, 24, 10, () => {
+    roundRectPath(ctx, x + w / 2 - 90, y + 580, 180, 56, 28);
+    ctx.fillStyle = brand;
+    ctx.fill();
+  });
+  return c;
+}
+
+function phoneScene(logo: Drawable, brand: string): HTMLCanvasElement {
+  const { c, ctx } = sceneCanvas(shade(brand, 0.9));
+  const pw = 540;
+  const ph = 1040;
+  const x = (SCENE_W - pw) / 2;
+  const y = (SCENE_H - ph) / 2;
+  // Device body.
+  withShadow(
+    ctx,
+    80,
+    36,
+    () => {
+      roundRectPath(ctx, x, y, pw, ph, 76);
+      ctx.fillStyle = "#15140f";
+      ctx.fill();
+    },
+    0.26,
+  );
+  // Screen.
+  const sx = x + 22;
+  const sy = y + 22;
+  const sw = pw - 44;
+  const sh = ph - 44;
+  ctx.save();
+  roundRectPath(ctx, sx, sy, sw, sh, 58);
+  ctx.clip();
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(sx, sy, sw, sh);
+  // Notch.
+  ctx.fillStyle = "#15140f";
+  roundRectPath(ctx, x + pw / 2 - 70, y + 30, 140, 30, 15);
+  ctx.fill();
+  // Logo splash + brand button.
+  drawContained(ctx, logo, sx + sw * 0.2, sy + sh * 0.32, sw * 0.6, sh * 0.22);
+  ctx.fillStyle = brand;
+  roundRectPath(ctx, sx + sw * 0.18, sy + sh * 0.72, sw * 0.64, 64, 32);
+  ctx.fill();
+  ctx.restore();
+  return c;
+}
+
+function mugScene(logo: Drawable, brand: string): HTMLCanvasElement {
+  const { c, ctx } = sceneCanvas(shade(brand, 0.91));
+  const bx = 560;
+  const by = 360;
+  const bw = 520;
+  const bh = 480;
+  // Handle (behind body).
+  ctx.save();
+  ctx.strokeStyle = "#e7e4de";
+  ctx.lineWidth = 60;
+  ctx.beginPath();
+  ctx.arc(bx + bw + 10, by + bh / 2, 130, -Math.PI / 2.1, Math.PI / 2.1);
+  ctx.stroke();
+  ctx.restore();
+  // Body.
+  withShadow(ctx, 55, 26, () => {
+    roundRectPath(ctx, bx, by, bw, bh, 46);
+    ctx.fillStyle = "#ffffff";
+    ctx.fill();
+  });
+  // Rim ellipse.
+  ctx.beginPath();
+  ctx.ellipse(bx + bw / 2, by + 14, bw / 2 - 6, 30, 0, 0, Math.PI * 2);
+  ctx.fillStyle = shade(brand, 0.86);
+  ctx.fill();
+  drawContained(ctx, logo, bx + bw * 0.14, by + bh * 0.24, bw * 0.72, bh * 0.5);
+  return c;
+}
+
+function signageScene(logo: Drawable, brand: string): HTMLCanvasElement {
+  const { c, ctx } = sceneCanvas(shade(brand, 0.82));
+  // Subtle wall banding for depth.
+  ctx.fillStyle = shade(brand, 0.86);
+  ctx.fillRect(0, 0, SCENE_W, SCENE_H / 2);
+  const pw = 980;
+  const ph = 600;
+  const x = (SCENE_W - pw) / 2;
+  const y = (SCENE_H - ph) / 2;
+  withShadow(
+    ctx,
+    90,
+    44,
+    () => {
+      roundRectPath(ctx, x, y, pw, ph, 20);
+      ctx.fillStyle = "#ffffff";
+      ctx.fill();
+    },
+    0.24,
+  );
+  // Brand accent bar along the bottom of the sign.
+  ctx.save();
+  roundRectPath(ctx, x, y, pw, ph, 20);
+  ctx.clip();
+  ctx.fillStyle = brand;
+  ctx.fillRect(x, y + ph - 26, pw, 26);
+  ctx.restore();
+  drawContained(ctx, logo, x + pw * 0.16, y + ph * 0.18, pw * 0.68, ph * 0.56);
+  return c;
+}
+
+export function mockupScenes(
+  img: HTMLImageElement,
+  transFull: HTMLCanvasElement,
+  cutoutOk: boolean,
+  ctx: DeterministicCtx,
+): AssetSpec[] {
+  const { brandColor } = ctx;
+  // A logo that sits well on a light surface: the transparent cutout when we
+  // have one, otherwise the original (its own light background blends in).
+  const logo: Drawable = cutoutOk ? transFull : img;
+  const png = (draw: () => HTMLCanvasElement) => () => canvasToBlob(draw());
+  const G = "Product mockups";
+  return [
+    {
+      group: G,
+      name: "Business card",
+      filename: "scenes/business-card.png",
+      build: png(() => businessCardScene(logo, brandColor)),
+    },
+    {
+      group: G,
+      name: "T-shirt",
+      filename: "scenes/t-shirt.png",
+      build: png(() => tshirtScene(logo, brandColor)),
+    },
+    {
+      group: G,
+      name: "Website",
+      filename: "scenes/website.png",
+      build: png(() => browserScene(logo, brandColor)),
+    },
+    {
+      group: G,
+      name: "Phone app",
+      filename: "scenes/phone.png",
+      build: png(() => phoneScene(logo, brandColor)),
+    },
+    {
+      group: G,
+      name: "Mug",
+      filename: "scenes/mug.png",
+      build: png(() => mugScene(logo, brandColor)),
+    },
+    {
+      group: G,
+      name: "Signage",
+      filename: "scenes/signage.png",
+      build: png(() => signageScene(logo, brandColor)),
+    },
+  ];
 }
 
 export function paletteFiles(palette: string[]): { css: string; json: string } {
@@ -1179,7 +1597,7 @@ export function paletteFiles(palette: string[]): { css: string; json: string } {
 
 export function readme(companyName: string, palette: string[]): string {
   const name = companyName || "Your logo";
-  return `${name}: brand kit\nGenerated with LogoCreator.\n\nFOLDERS\n  variants/   original (1024) + transparent, monochrome (black/white), on-light, on-dark + logo.svg (auto-traced vector)\n  icons/      icon + app icon, and a full favicon set (16/32/48/180/192/512)\n  social/     avatar, Open Graph card, social banner, wallpaper, repeating pattern\n  mockups/    AI product shots: t-shirt, tote, mug, business card, signage\n  brand-colors.css / .json with the extracted palette: ${palette.join(", ")}\n\nQUICK USE\n  - Favicon:   icons/favicon-32.png, favicon-16.png\n  - iOS:       icons/apple-touch-icon-180.png\n  - PWA/app:   icons/icon-192.png, icon-512.png, app-icon.png\n  - Link card: social/og-1200x630.png\n  - Header:    social/banner-1500x500.png\n  - Merch:     mockups/ (ready-to-share product visuals)\n`;
+  return `${name}: brand kit\nGenerated with LogoCreator.\n\nFOLDERS\n  variants/   original (1024) + transparent, monochrome (black/white), on-light, on-dark + logo.svg (auto-traced vector)\n  icons/      icon + app icon, and a full favicon set (16/32/48/180/192/512)\n  social/     avatar, Open Graph card, social banner, wallpaper, repeating pattern\n  scenes/     product mockups (on-device): business card, t-shirt, website, phone, mug, signage\n  mockups/    AI product shots: t-shirt, tote, mug, business card, signage\n  brand-colors.css / .json with the extracted palette: ${palette.join(", ")}\n  style-guide.pdf  printable brand guidelines: logo, clear space, color, type\n\nQUICK USE\n  - Favicon:   icons/favicon-32.png, favicon-16.png\n  - iOS:       icons/apple-touch-icon-180.png\n  - PWA/app:   icons/icon-192.png, icon-512.png, app-icon.png\n  - Link card: social/og-1200x630.png\n  - Header:    social/banner-1500x500.png\n  - Merch:     mockups/ (ready-to-share product visuals)\n`;
 }
 
 export async function zipFiles(
@@ -1234,7 +1652,13 @@ export async function editLogo(
     try {
       const res = await fetch("/api/edit-logo", {
         method: "POST",
-        body: JSON.stringify({ userAPIKey: apiKey, image, prompt, width, height }),
+        body: JSON.stringify({
+          userAPIKey: apiKey,
+          image,
+          prompt,
+          width,
+          height,
+        }),
         signal: ctrl.signal,
       });
       if (res.ok) {
@@ -1243,14 +1667,16 @@ export async function editLogo(
         return resp.blob();
       }
       // 4xx other than rate-limit won't fix itself. Stop retrying.
-      if (res.status < 500 && res.status !== 429) throw new Error("edit failed");
+      if (res.status < 500 && res.status !== 429)
+        throw new Error("edit failed");
       lastErr = new Error(`status ${res.status}`);
     } catch (e) {
       lastErr = e;
     } finally {
       clearTimeout(timeout);
     }
-    if (attempt < 2) await new Promise((r) => setTimeout(r, 800 * (attempt + 1)));
+    if (attempt < 2)
+      await new Promise((r) => setTimeout(r, 800 * (attempt + 1)));
   }
   throw lastErr ?? new Error("edit failed");
 }

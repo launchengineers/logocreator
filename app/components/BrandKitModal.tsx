@@ -5,6 +5,7 @@ import {
   ArrowRight,
   Check,
   Download,
+  FileText,
   ImageIcon,
   Loader2,
   Maximize2,
@@ -39,6 +40,10 @@ const CATEGORY_META: Record<string, { blurb: string; paid: boolean }> = {
   },
   "Icons & favicons": { blurb: "App icon + every favicon size", paid: false },
   "Web & social": { blurb: "Avatar, banner, OG card & patterns", paid: false },
+  "Product mockups": {
+    blurb: "Business card, t-shirt, website, phone, mug, signage",
+    paid: false,
+  },
   Mockups: { blurb: "T-shirt, mug, tote, business card, signage", paid: true },
 };
 
@@ -47,6 +52,7 @@ const GROUP_ORDER = [
   "Logo lockups",
   "Icons & favicons",
   "Web & social",
+  "Product mockups",
   "Mockups",
 ];
 
@@ -61,9 +67,11 @@ export default function BrandKitModal({
   doneCount,
   total,
   zipping,
+  guiding,
   onMinimize,
   onDiscard,
   onDownloadAll,
+  onDownloadGuide,
   onBuild,
   onRetry,
 }: {
@@ -77,9 +85,11 @@ export default function BrandKitModal({
   doneCount: number;
   total: number;
   zipping: boolean;
+  guiding: boolean;
   onMinimize: () => void;
   onDiscard: () => void;
   onDownloadAll: () => void;
+  onDownloadGuide: () => void;
   onBuild: (groups: string[]) => void;
   onRetry: () => void;
 }) {
@@ -129,7 +139,7 @@ export default function BrandKitModal({
           onRetry={onRetry}
         />
       ) : gen ? (
-        <DialogContent className="flex max-h-[88vh] max-w-4xl flex-col gap-0 overflow-hidden rounded-2xl p-0">
+        <DialogContent className="flex max-h-[88svh] max-w-4xl flex-col gap-0 overflow-hidden rounded-2xl p-0">
           <DialogHeader className="space-y-1 border-b border-border px-6 py-5 pr-12 text-left">
             <DialogTitle className="text-lg">
               {phase === "done"
@@ -239,7 +249,7 @@ export default function BrandKitModal({
           </div>
 
           {/* Footer */}
-          <div className="flex items-center justify-between gap-3 border-t border-border px-6 py-4">
+          <div className="flex flex-col-reverse gap-2 border-t border-border px-6 py-4 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
             <button
               type="button"
               onClick={() => {
@@ -260,7 +270,7 @@ export default function BrandKitModal({
                   : "Discard this brand kit"
               }
               className={cn(
-                "flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs font-medium transition-colors",
+                "flex items-center justify-center gap-1.5 rounded-lg px-2 py-2 text-xs font-medium transition-colors sm:justify-start sm:py-1",
                 confirmDiscard
                   ? "text-destructive"
                   : "text-muted-foreground hover:text-destructive",
@@ -269,16 +279,31 @@ export default function BrandKitModal({
               <Trash2 className="size-3.5" />
               {confirmDiscard ? "Discard everything?" : "Discard"}
             </button>
-            <div className="flex items-center gap-3">
-              <span className="hidden text-xs text-muted-foreground sm:block">
+            <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center sm:gap-3">
+              <span className="hidden text-xs text-muted-foreground lg:block">
                 {phase === "done"
                   ? "All set. Download the full kit."
                   : "Close anytime, it keeps building in the background."}
               </span>
+              {phase === "done" && (
+                <Button
+                  variant="secondary"
+                  onClick={onDownloadGuide}
+                  disabled={doneCount === 0 || guiding}
+                  className="w-full rounded-lg font-semibold sm:w-auto"
+                >
+                  {guiding ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <FileText className="size-4" />
+                  )}
+                  Style guide
+                </Button>
+              )}
               <Button
                 onClick={onDownloadAll}
                 disabled={doneCount === 0 || zipping}
-                className="rounded-lg font-bold"
+                className="w-full rounded-lg font-bold sm:w-auto"
               >
                 {zipping ? (
                   <Loader2 className="size-4 animate-spin" />
@@ -313,7 +338,7 @@ function AssetLightbox({
           <div className="flex flex-col items-center gap-3">
             {/* Checkerboard so transparent / white assets stay visible */}
             <div
-              className="flex max-h-[78vh] items-center justify-center overflow-hidden rounded-2xl ring-1 ring-white/15"
+              className="flex max-h-[78svh] items-center justify-center overflow-hidden rounded-2xl ring-1 ring-white/15"
               style={{
                 backgroundColor: "#f7f5f1",
                 backgroundImage:
@@ -326,17 +351,17 @@ function AssetLightbox({
               <img
                 src={item.url}
                 alt={item.name}
-                className="max-h-[78vh] w-auto object-contain"
+                className="max-h-[78svh] w-auto object-contain"
               />
             </div>
-            <div className="flex items-center gap-3 rounded-full bg-black/55 px-3 py-1.5 backdrop-blur">
-              <span className="text-sm font-medium text-white">
+            <div className="flex max-w-[90vw] items-center gap-3 rounded-full bg-black/55 px-3 py-1.5 backdrop-blur">
+              <span className="min-w-0 truncate text-sm font-medium text-white">
                 {item.name}
               </span>
               <a
                 href={item.url}
                 download={item.filename.split("/").pop()}
-                className="flex items-center gap-1 rounded-full bg-white/15 px-2.5 py-1 text-xs font-semibold text-white outline-none transition-colors hover:bg-white/25 focus-visible:ring-2 focus-visible:ring-white/60"
+                className="flex shrink-0 items-center gap-1 rounded-full bg-white/15 px-2.5 py-1.5 text-xs font-semibold text-white outline-none transition-colors hover:bg-white/25 focus-visible:ring-2 focus-visible:ring-white/60 sm:py-1"
               >
                 <Download className="size-3.5" />
                 Download
@@ -410,7 +435,7 @@ function ConfigureView({
     });
 
   return (
-    <DialogContent className="flex max-h-[88vh] max-w-3xl flex-col gap-0 overflow-hidden rounded-2xl p-0">
+    <DialogContent className="flex max-h-[88svh] max-w-3xl flex-col gap-0 overflow-hidden rounded-2xl p-0">
       <DialogHeader className="space-y-1 border-b border-border px-6 py-5 pr-12 text-left">
         <DialogTitle className="text-lg">
           Build {gen.companyName || "your"} brand kit
@@ -528,7 +553,7 @@ function ConfigureView({
           <X className="size-3.5" />
           Cancel
         </button>
-        <div className="flex items-center gap-3">
+        <div className="flex min-w-0 flex-1 items-center justify-end gap-3 sm:flex-none">
           <span className="hidden text-xs text-muted-foreground sm:block">
             {selectedCount} asset{selectedCount === 1 ? "" : "s"} ·{" "}
             {totalCost > 0 ? `~${formatUsd(totalCost)} credits` : "all free"}
@@ -536,7 +561,7 @@ function ConfigureView({
           <Button
             onClick={() => onBuild(Array.from(selected))}
             disabled={selectedCount === 0}
-            className="rounded-lg font-bold"
+            className="min-w-0 flex-1 rounded-lg font-bold sm:flex-none"
           >
             <Sparkles className="size-4" />
             Build kit{totalCost > 0 ? ` · ~${formatUsd(totalCost)}` : ""}
@@ -625,7 +650,7 @@ function AssetTile({
             download={item.filename.split("/").pop()}
             onClick={(e) => e.stopPropagation()}
             aria-label={`Download ${item.name}`}
-            className="absolute bottom-1.5 left-1.5 z-10 flex size-6 items-center justify-center rounded-full bg-black/60 text-white opacity-0 backdrop-blur outline-none transition-opacity hover:bg-black/80 group-hover/tile:opacity-100 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-white/60"
+            className="absolute bottom-1.5 left-1.5 z-10 flex size-6 items-center justify-center rounded-full bg-black/60 text-white opacity-0 backdrop-blur outline-none transition-opacity hover:bg-black/80 group-hover/tile:opacity-100 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-white/60 [@media(hover:none)]:size-8 [@media(hover:none)]:opacity-100"
           >
             <Download className="size-3" />
           </a>

@@ -27,6 +27,7 @@
     "dedent": "^1.5.3",
     "framer-motion": "^12.40.0",
     "imagetracerjs": "^1.2.6",
+    "jspdf": "^4.2.1",
     "jszip": "^3.10.1",
     "lucide-react": "^0.469.0",
     "next": "16.2.7",

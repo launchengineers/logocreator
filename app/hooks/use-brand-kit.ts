@@ -18,6 +18,7 @@ import {
   zipFiles,
 } from "@/app/lib/brand-kit";
 import { logoToSvgBlob } from "@/app/lib/svg-export";
+import { buildStyleGuide } from "@/app/lib/style-guide";
 import { toast } from "@/hooks/use-toast";
 import type { Generation } from "@/app/components/Gallery";
 
@@ -51,6 +52,7 @@ export type BrandKitController = {
   doneCount: number;
   total: number;
   zipping: boolean;
+  guiding: boolean;
   /** Begin (or re-focus) a brand kit: opens to the configure step. */
   start: (gen: Generation, apiKeyOverride?: string) => void;
   /** Build only the chosen categories (the rest are dropped). */
@@ -61,6 +63,8 @@ export type BrandKitController = {
   minimize: () => void;
   discard: () => void;
   downloadAll: () => Promise<void>;
+  /** Download just the brand-guidelines PDF (without zipping the whole kit). */
+  downloadGuide: () => Promise<void>;
 };
 
 /**
@@ -78,6 +82,7 @@ export function useBrandKit(apiKey: string): BrandKitController {
   const [phase, setPhase] = useState<BrandKitPhase>("configure");
   const [prepareError, setPrepareError] = useState(false);
   const [zipping, setZipping] = useState(false);
+  const [guiding, setGuiding] = useState(false);
 
   const blobs = useRef<Map<string, Blob>>(new Map());
   const urls = useRef<string[]>([]);
@@ -280,6 +285,16 @@ export function useBrandKit(apiKey: string): BrandKitController {
       files.push({ path: "brand-colors.css", data: css });
       files.push({ path: "brand-colors.json", data: json });
       files.push({ path: "README.txt", data: readme(g.companyName, pal) });
+      // A printable brand-guidelines PDF, built from the assets already in hand.
+      // Best-effort: a PDF failure must never block the rest of the kit.
+      try {
+        files.push({
+          path: "style-guide.pdf",
+          data: await buildStyleGuide(g, pal, blobs.current),
+        });
+      } catch {
+        /* skip the guide; ship the rest of the kit */
+      }
       const blob = await zipFiles(files);
       downloadBlob(blob, `${slugify(g.companyName)}-brand-kit.zip`);
       toast({
@@ -292,6 +307,23 @@ export function useBrandKit(apiKey: string): BrandKitController {
       setZipping(false);
     }
   }, [zipping]);
+
+  const downloadGuide = useCallback(async () => {
+    const g = genRef.current;
+    if (!g || guiding) return;
+    setGuiding(true);
+    try {
+      const blob = await buildStyleGuide(g, paletteRef.current, blobs.current);
+      downloadBlob(blob, `${slugify(g.companyName)}-style-guide.pdf`);
+    } catch {
+      toast({
+        variant: "destructive",
+        title: "Couldn't build the style guide",
+      });
+    } finally {
+      setGuiding(false);
+    }
+  }, [guiding]);
 
   const retry = useCallback(() => {
     const g = genRef.current;
@@ -314,6 +346,7 @@ export function useBrandKit(apiKey: string): BrandKitController {
     doneCount: items.filter((i) => !i.hidden && i.status === "done").length,
     total: items.filter((i) => !i.hidden).length,
     zipping,
+    guiding,
     start,
     build,
     retry,
@@ -321,5 +354,6 @@ export function useBrandKit(apiKey: string): BrandKitController {
     minimize,
     discard,
     downloadAll,
+    downloadGuide,
   };
 }
