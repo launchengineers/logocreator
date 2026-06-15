@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import {
+  ChevronDown,
   Download,
   FileCode2,
   ImageOff,
@@ -24,7 +25,7 @@ import { Button } from "@/app/components/ui/button";
 import { Tip } from "@/app/components/ui/tooltip";
 import { Textarea } from "@/app/components/ui/textarea";
 import { downloadBlob, slugify } from "@/app/lib/brand-kit";
-import { logoToSvgBlob } from "@/app/lib/svg-export";
+import { logoToHiResPngBlob, logoToSvgBlob } from "@/app/lib/svg-export";
 import { PRICE_PER_AI_ASSET, formatUsd } from "@/app/lib/pricing";
 import { toast } from "@/hooks/use-toast";
 import { LOGO_TYPES } from "./LogoTypeSelect";
@@ -78,6 +79,115 @@ function ColorChip({ label, hex }: { label: string; hex: string }) {
       />
       {label}
     </Chip>
+  );
+}
+
+// PNG export sizes. 1024 is the native generation size (download the original
+// bytes untouched); 2048/4096 vectorize then re-rasterize for genuinely sharp
+// print output instead of an upscaled blur.
+const PNG_SIZES: { size: number; label: string; sub: string }[] = [
+  { size: 1024, label: "Standard", sub: "1024px" },
+  { size: 2048, label: "High-res", sub: "2048px" },
+  { size: 4096, label: "Print", sub: "4096px" },
+];
+
+function PngExportMenu({
+  image,
+  filename,
+  className,
+}: {
+  image: string;
+  filename: string;
+  className?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [busySize, setBusySize] = useState<number | null>(null);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function onDown(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node))
+        setOpen(false);
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  async function download(size: number) {
+    if (busySize !== null) return;
+    setBusySize(size);
+    try {
+      if (size <= 1024) {
+        // Native size: ship the original bytes, no re-raster (lossless).
+        const blob = await (await fetch(image)).blob();
+        downloadBlob(blob, `${filename}.png`);
+      } else {
+        const blob = await logoToHiResPngBlob(image, size);
+        downloadBlob(blob, `${filename}-${size}.png`);
+      }
+      setOpen(false);
+    } catch {
+      toast({ variant: "destructive", title: "Couldn't export this size" });
+    } finally {
+      setBusySize(null);
+    }
+  }
+
+  const busy = busySize !== null;
+
+  return (
+    <div ref={ref} className={cn("relative", className)}>
+      <Button
+        variant="secondary"
+        onClick={() => setOpen((o) => !o)}
+        disabled={busy}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        className="w-full rounded-lg"
+      >
+        {busy ? (
+          <Loader2 className="size-4 animate-spin" />
+        ) : (
+          <Download className="size-4" />
+        )}
+        PNG
+        <ChevronDown className="size-3 opacity-60" />
+      </Button>
+      {open && (
+        <div
+          role="menu"
+          aria-label="PNG export size"
+          className="absolute bottom-full left-0 z-50 mb-1.5 w-44 overflow-hidden rounded-xl border border-border bg-card p-1 shadow-lg"
+        >
+          {PNG_SIZES.map((s) => (
+            <button
+              key={s.size}
+              role="menuitem"
+              type="button"
+              disabled={busy}
+              onClick={() => download(s.size)}
+              className="flex w-full items-center justify-between gap-3 rounded-lg px-2.5 py-2 text-left text-sm outline-none transition-colors hover:bg-muted focus-visible:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <span className="font-medium text-foreground">{s.label}</span>
+              <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                {busySize === s.size && (
+                  <Loader2 className="size-3.5 animate-spin" />
+                )}
+                {s.sub}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -177,11 +287,12 @@ export default function GenerationModal({
             {gen.name || gen.companyName || "Generated logo"}
           </DialogTitle>
           <DialogDescription className="sr-only">
-            Large preview and actions for this generated logo, including AI edits.
+            Large preview and actions for this generated logo, including AI
+            edits.
           </DialogDescription>
 
           {/* Stacks + scrolls as one on mobile; splits into image | sidebar on desktop */}
-          <div className="flex max-h-[92vh] flex-col overflow-y-auto lg:grid lg:grid-cols-[minmax(0,1fr)_23rem] lg:overflow-hidden">
+          <div className="flex max-h-[92svh] flex-col overflow-y-auto lg:grid lg:grid-cols-[minmax(0,1fr)_23rem] lg:overflow-hidden">
             {/* Preview */}
             <div className="relative flex items-center justify-center overflow-hidden bg-muted/30 p-6 sm:p-8 lg:p-10">
               <div
@@ -224,13 +335,15 @@ export default function GenerationModal({
             </div>
 
             {/* Sidebar */}
-            <div className="flex flex-col gap-5 border-t border-border bg-card p-6 lg:max-h-[92vh] lg:overflow-y-auto lg:border-l lg:border-t-0">
+            <div className="flex flex-col gap-5 border-t border-border bg-card p-6 lg:max-h-[92svh] lg:overflow-y-auto lg:border-l lg:border-t-0">
               {/* Title + meta */}
               <div>
                 <div className="flex items-center gap-2 pr-8">
                   <Tip
                     label={
-                      gen.favorite ? "Remove from favorites" : "Add to favorites"
+                      gen.favorite
+                        ? "Remove from favorites"
+                        : "Add to favorites"
                     }
                   >
                     <button
@@ -250,7 +363,10 @@ export default function GenerationModal({
                       )}
                     >
                       <Star
-                        className={cn("size-4", gen.favorite && "fill-amber-400")}
+                        className={cn(
+                          "size-4",
+                          gen.favorite && "fill-amber-400",
+                        )}
                       />
                     </button>
                   </Tip>
@@ -279,7 +395,10 @@ export default function GenerationModal({
                   <Chip title="Detail level">{gen.params.detailLevel}</Chip>
                   {gen.params.monochrome && <Chip>Monochrome</Chip>}
                   <ColorChip label="Brand" hex={gen.params.primaryColor} />
-                  <ColorChip label="Background" hex={gen.params.backgroundColor} />
+                  <ColorChip
+                    label="Background"
+                    hex={gen.params.backgroundColor}
+                  />
                 </div>
               </div>
 
@@ -292,8 +411,8 @@ export default function GenerationModal({
                   </span>
                 </div>
                 <p className="mt-1.5 text-xs leading-snug text-muted-foreground">
-                  Describe a tweak. AI re-works this exact logo and saves it as a
-                  new version.
+                  Describe a tweak. AI re-works this exact logo and saves it as
+                  a new version.
                 </p>
                 <Textarea
                   value={editText}
@@ -308,12 +427,12 @@ export default function GenerationModal({
                   disabled={editing}
                   rows={3}
                   aria-label="Describe an edit to this logo"
-                  className="mt-2.5 min-h-[5.25rem] text-sm"
+                  className="mt-2.5 min-h-[5.25rem] text-base sm:text-sm"
                 />
                 <div
                   role="group"
                   aria-label="Quick edits"
-                  className="mt-2 flex flex-wrap gap-1.5"
+                  className="mt-2 flex flex-wrap gap-2"
                 >
                   {["icon-name", "wordmark", "monogram", "emblem"].includes(
                     gen.params.logoType,
@@ -327,7 +446,7 @@ export default function GenerationModal({
                         )
                       }
                       title={`Fix the spelling to read exactly "${gen.companyName}"`}
-                      className="flex items-center gap-1 rounded-full border border-amber-400/30 bg-amber-400/10 px-2.5 py-1 text-xs font-medium text-amber-700 outline-none transition-colors hover:bg-amber-400/20 focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 dark:text-amber-300"
+                      className="flex items-center gap-1 rounded-full border border-amber-400/30 bg-amber-400/10 px-2.5 py-1.5 text-xs font-medium text-amber-700 outline-none transition-colors hover:bg-amber-400/20 focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 dark:text-amber-300 sm:py-1"
                     >
                       <SpellCheck className="size-3" />
                       Fix text
@@ -340,7 +459,7 @@ export default function GenerationModal({
                       disabled={editing}
                       onClick={() => applyQuick(q.prompt)}
                       title={`Apply: ${q.prompt}`}
-                      className="rounded-full border border-border bg-muted/40 px-2.5 py-1 text-xs font-medium text-foreground/70 transition-colors hover:border-primary/40 hover:bg-primary/10 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                      className="rounded-full border border-border bg-muted/40 px-2.5 py-1.5 text-xs font-medium text-foreground/70 transition-colors hover:border-primary/40 hover:bg-primary/10 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50 sm:py-1"
                     >
                       {q.label}
                     </button>
@@ -378,16 +497,12 @@ export default function GenerationModal({
                   <Sparkles className="size-4" />
                   Create brand kit
                 </Button>
-                <div className="grid grid-cols-3 gap-2">
-                  <Button asChild variant="secondary" className="rounded-lg">
-                    <a
-                      href={gen.image}
-                      download={`${slugify(gen.name || gen.companyName)}.png`}
-                    >
-                      <Download className="size-4" />
-                      PNG
-                    </a>
-                  </Button>
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                  <PngExportMenu
+                    image={gen.image}
+                    filename={slugify(gen.name || gen.companyName)}
+                    className="col-span-2 sm:col-span-1"
+                  />
                   <Tip label="Vector SVG (auto-traced)">
                     <Button
                       variant="secondary"
@@ -404,7 +519,9 @@ export default function GenerationModal({
                     </Button>
                   </Tip>
                   <Tip
-                    label={busy ? "Generating…" : "Regenerate from the same settings"}
+                    label={
+                      busy ? "Generating…" : "Regenerate from the same settings"
+                    }
                   >
                     <Button
                       variant="secondary"

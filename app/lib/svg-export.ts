@@ -1,4 +1,4 @@
-import { loadImage } from "./brand-kit";
+import { canvasToBlob, loadImage } from "./brand-kit";
 
 /**
  * Vectorize a (flat, limited-color) raster logo to an SVG string by tracing it
@@ -31,7 +31,11 @@ const LOGO_TRACE_OPTS = {
  * every pixel within tolerance of the corner-sampled background to that single
  * color collapses it into one clean region.
  */
-function flattenBackground(ctx: CanvasRenderingContext2D, w: number, h: number) {
+function flattenBackground(
+  ctx: CanvasRenderingContext2D,
+  w: number,
+  h: number,
+) {
   const image = ctx.getImageData(0, 0, w, h);
   const d = image.data;
   // Sample only OPAQUE corners: a transparent corner's RGB is usually (0,0,0)
@@ -99,4 +103,34 @@ export async function logoToSvgString(src: string): Promise<string> {
 export async function logoToSvgBlob(src: string): Promise<Blob> {
   const svg = await logoToSvgString(src);
   return new Blob([svg], { type: "image/svg+xml" });
+}
+
+/**
+ * Rasterize the (vectorized) logo to a clean square PNG at an arbitrary size.
+ * Tracing to SVG first means 2048/4096 come out genuinely sharp for these flat
+ * marks instead of an upscaled blur. The traced SVG is viewBox-only so it
+ * scales in the DOM, but canvas rasterization needs explicit intrinsic
+ * dimensions or some browsers draw nothing - so we inject width/height = size.
+ */
+export async function logoToHiResPngBlob(
+  src: string,
+  size: number,
+): Promise<Blob> {
+  const svg = (await logoToSvgString(src)).replace(
+    /<svg([^>]*?)>/,
+    (_m, attrs: string) =>
+      `<svg${attrs.replace(
+        /\s(?:width|height)="[^"]*"/g,
+        "",
+      )} width="${size}" height="${size}">`,
+  );
+  const url = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+  const img = await loadImage(url);
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("Canvas unavailable");
+  ctx.drawImage(img, 0, 0, size, size);
+  return canvasToBlob(canvas);
 }
