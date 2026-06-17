@@ -167,6 +167,71 @@ export function transparentFraction(canvas: HTMLCanvasElement): number {
   return clear / n;
 }
 
+// Two flat surfaces every asset can fall back to: the app's near-black and pure
+// white. Used wherever a backdrop tone is flipped to keep the logo legible.
+const DARK_SURFACE = "#0c0c0b";
+const LIGHT_SURFACE = "#ffffff";
+
+// Ink-polarity thresholds. Mean ink luminance above LIGHT → the logo is light
+// and needs a dark surface to read; below DARK → it's dark and needs a light
+// one; in between it reads on either. Chroma below MONO_CHROMA means the ink is
+// effectively monochrome, so it's safe to recolor to a legible black/white form
+// without throwing away brand color.
+const INK_LIGHT = 0.62;
+const INK_DARK = 0.34;
+const INK_MONO_CHROMA = 0.12;
+
+/**
+ * Alpha-weighted mean perceptual luminance + chroma (each 0..1) of a logo's
+ * ink. Pass the transparent cutout so the reading reflects the artwork itself,
+ * not its plain background. This is the measurement the whole kit was missing:
+ * everything that drops the logo onto a surface uses it to pick a backdrop that
+ * actually contrasts with the mark, instead of assuming every logo is
+ * dark-on-light. Empty input returns neutral (0.5 luma, 0 chroma).
+ */
+export function inkStats(source: HTMLCanvasElement | HTMLImageElement): {
+  luma: number;
+  chroma: number;
+} {
+  const w = 64;
+  const h = 64;
+  const c = document.createElement("canvas");
+  c.width = w;
+  c.height = h;
+  const cx = c.getContext("2d", { willReadFrequently: true })!;
+  cx.imageSmoothingEnabled = true;
+  cx.imageSmoothingQuality = "high";
+  cx.drawImage(source, 0, 0, w, h);
+  const d = cx.getImageData(0, 0, w, h).data;
+  let lum = 0;
+  let chroma = 0;
+  let wsum = 0;
+  for (let i = 0; i < d.length; i += 4) {
+    const a = d[i + 3];
+    if (a < 24) continue; // skip the transparent surround and its soft feather
+    const r = d[i];
+    const g = d[i + 1];
+    const b = d[i + 2];
+    lum += ((0.2126 * r + 0.7152 * g + 0.0722 * b) / 255) * a;
+    chroma += ((Math.max(r, g, b) - Math.min(r, g, b)) / 255) * a;
+    wsum += a;
+  }
+  return wsum === 0
+    ? { luma: 0.5, chroma: 0 }
+    : { luma: lum / wsum, chroma: chroma / wsum };
+}
+
+/**
+ * Whether a logo's ink is light enough to need dark surfaces. Keeps the polarity
+ * threshold in one place so callers outside this module (the AI prompt builder
+ * is fed via the hook) agree with the canvas builders. Non-keyable logos report
+ * false, preserving the historical dark-on-light assumption.
+ */
+export function isLightInkLogo(transparent: HTMLCanvasElement): boolean {
+  if (transparentFraction(transparent) <= 0.06) return false;
+  return inkStats(cropToContent(transparent, 0.02)).luma > INK_LIGHT;
+}
+
 /** Bounding box of non-transparent content, or null if fully transparent. */
 export function contentBounds(
   canvas: HTMLCanvasElement,
@@ -793,11 +858,10 @@ export function patternCanvas(
   c.width = size;
   c.height = size;
   const ctx = c.getContext("2d")!;
-  // Very light brand tint normally; for a very light brand color flip to a
-  // deep tint instead, so a light mark doesn't vanish into a white-on-white
-  // pattern.
-  const { l } = hexToHsl(hex);
-  ctx.fillStyle = l > 0.78 ? toneAt(hex, 0.3) : toneAt(hex, 0.93);
+  // Tone the field to contrast with the actual mark: a deep brand tint behind a
+  // light mark, a pale one behind a dark mark, so neither vanishes into it.
+  const markLight = inkStats(mark).luma > INK_LIGHT;
+  ctx.fillStyle = markLight ? toneAt(hex, 0.3) : toneAt(hex, 0.93);
   ctx.fillRect(0, 0, size, size);
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = "high";
@@ -1002,6 +1066,17 @@ export function categoryPreviews(
     companyName,
     brandColor,
   );
+  // Ink polarity: a light logo would vanish on a white card, a dark one on the
+  // near-black card, so each preview's backdrop flips to keep the mark legible.
+  const ink = inkStats(transFull);
+  const lightInk = cutoutOk && ink.luma > INK_LIGHT;
+  const darkInk = cutoutOk && ink.luma < INK_DARK;
+  const monoInk = ink.chroma < INK_MONO_CHROMA;
+  const markLight = inkStats(markGlyph).luma > INK_LIGHT;
+  // On a forced-light surface a monochrome light logo is printed in its dark
+  // form (how you'd really print it); colorful marks keep their hue.
+  const onLight: HTMLImageElement | HTMLCanvasElement =
+    lightInk && monoInk ? recolor(transFull, DARK_SURFACE, true) : full;
   const u = (c: HTMLCanvasElement) => c.toDataURL("image/png");
   const W = 320;
   const H = 240;
@@ -1014,16 +1089,36 @@ export function categoryPreviews(
     return u(c);
   };
   return {
-    "Logo variants": u(scaleOnto(full, W, H, "#0c0c0b", 0.18)),
-    "Logo lockups": u(scaleOnto(full, W, H, "#ffffff", 0.16)),
+    "Logo variants": u(
+      scaleOnto(full, W, H, darkInk ? LIGHT_SURFACE : DARK_SURFACE, 0.18),
+    ),
+    "Logo lockups": u(
+      scaleOnto(full, W, H, lightInk ? DARK_SURFACE : LIGHT_SURFACE, 0.16),
+    ),
     "Icons & favicons": u(
-      tileWith(markGlyph, 240, shade(brandColor, 0.9), 0.2, 0.24),
+      tileWith(
+        markGlyph,
+        240,
+        markLight ? toneAt(brandColor, 0.22) : shade(brandColor, 0.9),
+        0.2,
+        0.24,
+      ),
     ),
     "Web & social": cutoutOk
-      ? u(onGradient(full, W, H, brandColor, 0.44, 0.5, 0.5))
+      ? u(
+          onGradient(
+            full,
+            W,
+            H,
+            lightInk ? toneAt(brandColor, 0.3) : brandColor,
+            0.44,
+            0.5,
+            0.5,
+          ),
+        )
       : u(onSolid(full, W, H, "#ffffff", 0.42)),
-    "Product mockups": scenePreview(businessCardScene(full, brandColor)),
-    Mockups: u(onSolid(full, W, H, "#d8d4cc", 0.34)),
+    "Product mockups": scenePreview(businessCardScene(onLight, brandColor)),
+    Mockups: u(onSolid(full, W, H, lightInk ? "#2a2a28" : "#d8d4cc", 0.34)),
   };
 }
 
@@ -1053,10 +1148,25 @@ export function deterministicAssetSpecs(
     brandColor,
   );
 
-  const tileBg = shade(brandColor, 0.9); // very light brand tint
+  // Ink polarity (measured on the cutout): drives every backdrop choice below
+  // so the logo reads whether it's dark, light, or colored. `monoInk` gates the
+  // recolor paths, so a colorful mark is never flattened to a silhouette.
+  const ink = inkStats(transFull);
+  const lightInk = cutoutOk && ink.luma > INK_LIGHT;
+  const darkInk = cutoutOk && ink.luma < INK_DARK;
+  const monoInk = ink.chroma < INK_MONO_CHROMA;
+  // The icon/favicon mark can differ from the whole logo (e.g. an isolated
+  // symbol), so measure it on its own to tone the tile behind it.
+  const markLight = inkStats(markGlyph).luma > INK_LIGHT;
+
+  // Tile behind the icon/app-icon/avatar: a light tint normally, but a deep
+  // brand tone when the mark is light (else a white mark vanishes on white).
+  const tileBg = markLight ? toneAt(brandColor, 0.22) : shade(brandColor, 0.9);
   const appTile = tileWith(markGlyph, 1024, tileBg, 0.18, 0.22);
 
   // Composite the full logo on a brand gradient, or clean white if no cutout.
+  // A light logo gets a deepened gradient so it doesn't wash out on a pale one.
+  const gradientHex = lightInk ? toneAt(brandColor, 0.3) : brandColor;
   const composite = (
     w: number,
     h: number,
@@ -1065,7 +1175,7 @@ export function deterministicAssetSpecs(
     cy = 0.5,
   ) =>
     cutoutOk
-      ? onGradient(fullForComposite, w, h, brandColor, maxFrac, cx, cy)
+      ? onGradient(fullForComposite, w, h, gradientHex, maxFrac, cx, cy)
       : onSolid(fullForComposite, w, h, "#ffffff", maxFrac);
 
   // ── Logo variants ──────────────────────────────────────
@@ -1117,13 +1227,36 @@ export function deterministicAssetSpecs(
         group: "Logo variants",
         name: "On light",
         filename: "variants/logo-on-light.png",
-        build: png(scaleOnto(transFull, 1024, 1024, "#ffffff", 0.14)),
+        // A monochrome light logo would vanish on white, so present it in its
+        // dark form (the reversed pair you'd actually use on a light surface).
+        build: png(
+          scaleOnto(
+            lightInk && monoInk
+              ? recolor(transFull, DARK_SURFACE, true)
+              : transFull,
+            1024,
+            1024,
+            LIGHT_SURFACE,
+            0.14,
+          ),
+        ),
       },
       {
         group: "Logo variants",
         name: "On dark",
         filename: "variants/logo-on-dark.png",
-        build: png(scaleOnto(transFull, 1024, 1024, "#0c0c0b", 0.14)),
+        // Mirror image: a monochrome dark logo would vanish on near-black.
+        build: png(
+          scaleOnto(
+            darkInk && monoInk
+              ? recolor(transFull, LIGHT_SURFACE, true)
+              : transFull,
+            1024,
+            1024,
+            DARK_SURFACE,
+            0.14,
+          ),
+        ),
       },
     );
   } else {
@@ -1221,7 +1354,14 @@ export function deterministicAssetSpecs(
       name: "Open Graph",
       filename: "social/og-1200x630.png",
       build: png(
-        onSolid(fullForComposite, 1200, 630, shade(brandColor, 0.93), 0.46),
+        onSolid(
+          fullForComposite,
+          1200,
+          630,
+          // Pale brand card normally; a deep brand card holds a light logo.
+          lightInk ? toneAt(brandColor, 0.2) : shade(brandColor, 0.93),
+          0.46,
+        ),
       ),
     },
     {
@@ -1534,9 +1674,18 @@ export function mockupScenes(
   ctx: DeterministicCtx,
 ): AssetSpec[] {
   const { brandColor } = ctx;
-  // A logo that sits well on a light surface: the transparent cutout when we
-  // have one, otherwise the original (its own light background blends in).
-  const logo: Drawable = cutoutOk ? transFull : img;
+  // Every scene prints the logo on a light surface (card, screen, garment, mug,
+  // sign). A monochrome light logo would vanish there, so print its dark form -
+  // exactly how you'd put a white logo on white merch. Colorful or dark logos
+  // keep their real artwork.
+  const ink = inkStats(transFull);
+  const lightMono =
+    cutoutOk && ink.luma > INK_LIGHT && ink.chroma < INK_MONO_CHROMA;
+  const logo: Drawable = lightMono
+    ? recolor(transFull, DARK_SURFACE, true)
+    : cutoutOk
+      ? transFull
+      : img;
   const png = (draw: () => HTMLCanvasElement) => () => canvasToBlob(draw());
   const G = "Product mockups";
   return [
@@ -1694,15 +1843,27 @@ export function aiAssetSpecs(
   apiKey: string,
   image: string,
   logoType: string,
+  lightInk = false,
 ): AssetSpec[] {
   // Reproduce-exactly + treat-background-as-transparent guard, appended to each.
   const FID =
     "Treat the logo's plain background as transparent: print only the colored logo artwork itself, never a white or colored rectangle behind it. Reproduce the logo exactly: same colors, shapes, spacing and proportions; do not enlarge it disproportionately, crop it, redraw it, or add any extra text.";
 
   // Lockup guard: keep the real artwork, just re-arrange it on a clean flat
-  // background (no mockup object, shadow, or invented text).
-  const LOCK =
-    "Keep the exact same colors, shapes and letterforms. Do not redraw or restyle anything. Output the logo on a clean, flat, plain solid background with generous even padding: no drop shadow, no mockup, no surrounding object or frame, no watermark, and add no extra text, labels or tagline.";
+  // background. A light logo is put on a dark charcoal field (else a white logo
+  // would sit invisibly on a white background); a dark/colored logo on white.
+  const lockSurface = lightInk
+    ? "a solid dark charcoal background (around #161615)"
+    : "a clean, flat, plain white background";
+  const LOCK = `Keep the exact same colors, shapes and letterforms. Do not redraw or restyle anything. Output the logo on ${lockSurface} with generous even padding: no drop shadow, no mockup, no surrounding object or frame, no watermark, and add no extra text, labels or tagline.`;
+
+  // Mockup product surfaces flip dark for a light logo so the print is visible
+  // on the merch (a white logo on a white tee/mug reads as nothing).
+  const tee = lightInk ? "charcoal heather" : "heather-grey";
+  const tote = lightInk ? "washed-black" : "natural beige";
+  const mug = lightInk ? "matte black" : "matte white";
+  const card = lightInk ? "matte charcoal" : "bright white";
+  const wall = lightInk ? "dark matte charcoal" : "light matte concrete";
 
   const mk = (
     name: string,
@@ -1777,29 +1938,29 @@ export function aiAssetSpecs(
     mk(
       "T-shirt",
       "mockups/tshirt.png",
-      `Photorealistic product photo of a folded heather-grey cotton t-shirt on a clean light studio background with soft shadows. Print the provided logo SMALL on the upper-left chest area, occupying only about 12% of the shirt width, a subtle left-chest print like a real branded tee.`,
+      `Photorealistic product photo of a folded ${tee} cotton t-shirt on a clean light studio background with soft shadows. Print the provided logo SMALL on the upper-left chest area, occupying only about 12% of the shirt width, a subtle left-chest print like a real branded tee.`,
     ),
     mk(
       "Tote bag",
       "mockups/tote-bag.png",
-      `Photorealistic product photo of a natural beige cotton canvas tote bag hanging against a soft neutral wall in gentle daylight. Print the provided logo centered on the tote at a tasteful medium size (about 35% of the bag width).`,
+      `Photorealistic product photo of a ${tote} cotton canvas tote bag hanging against a soft neutral wall in gentle daylight. Print the provided logo centered on the tote at a tasteful medium size (about 35% of the bag width).`,
     ),
     mk(
       "Coffee mug",
       "mockups/mug.png",
-      `Photorealistic product photo of a matte white ceramic coffee mug on a soft neutral surface with studio lighting. Print the provided logo centered on the mug face at a moderate size (about 45% of the visible face).`,
+      `Photorealistic product photo of a ${mug} ceramic coffee mug on a soft neutral surface with studio lighting. Print the provided logo centered on the mug face at a moderate size (about 45% of the visible face).`,
     ),
     mk(
       "Business card",
       "mockups/business-card.png",
-      `Top-down photo of two standard landscape rectangular business cards (3.5 by 2 inch proportions, clearly wider than tall) on a soft neutral surface, one slightly overlapping the other. The top card shows the provided logo centered, occupying about 55% of the card width. Minimal elegant studio lighting.`,
+      `Top-down photo of two ${card} standard landscape rectangular business cards (3.5 by 2 inch proportions, clearly wider than tall) on a soft neutral surface, one slightly overlapping the other. The top card shows the provided logo centered, occupying about 55% of the card width. Minimal elegant studio lighting.`,
       1344,
       768,
     ),
     mk(
       "Signage",
       "mockups/signage.png",
-      `Photorealistic architectural photo of the provided logo as clean dimensional signage mounted on a modern light matte concrete wall beside a glass entrance, in soft daytime light. The logo sits in the left-center at a realistic, moderate size.`,
+      `Photorealistic architectural photo of the provided logo as clean dimensional signage mounted on a modern ${wall} wall beside a glass entrance, in soft daytime light. The logo sits in the left-center at a realistic, moderate size.`,
       1344,
       768,
     ),

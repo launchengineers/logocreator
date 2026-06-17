@@ -7,6 +7,7 @@ import {
   categoryPreviews,
   deterministicAssetSpecs,
   downloadBlob,
+  isLightInkLogo,
   kitPalette,
   loadImage,
   makeTransparent,
@@ -151,7 +152,14 @@ export function useBrandKit(apiKey: string): BrandKitController {
         filename: "variants/logo.svg",
         build: () => logoToSvgBlob(dataUrl),
       });
-      const ai = aiAssetSpecs(key, dataUrl, g.params.logoType);
+      // Light logos need dark surfaces in the AI mockups/lockups too, or a white
+      // logo prints invisibly on a white tee / white background.
+      const ai = aiAssetSpecs(
+        key,
+        dataUrl,
+        g.params.logoType,
+        isLightInkLogo(transparent),
+      );
       const specs = [...det, ...ai];
       specsRef.current = specs;
       if (!alive()) return;
