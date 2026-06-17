@@ -15,7 +15,6 @@ import {
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { Button } from "@/app/components/ui/button";
-import { Input } from "@/app/components/ui/input";
 import { Textarea } from "@/app/components/ui/textarea";
 import Logo from "./components/Logo";
 import ThemeToggle from "./components/ThemeToggle";
@@ -36,7 +35,9 @@ import ReferenceUpload, {
 } from "./components/ReferenceUpload";
 import HistoryDashboard from "./components/HistoryDashboard";
 import WelcomeModal from "./components/WelcomeModal";
-import BrandImport, { type BrandImportResult } from "./components/BrandImport";
+import BrandNameField, {
+  type BrandImportResult,
+} from "./components/BrandNameField";
 import { Tip } from "./components/ui/tooltip";
 import { formatUsd, pricePerLogo } from "./lib/pricing";
 import {
@@ -1065,7 +1066,9 @@ export default function Page() {
           className="area-controls flex min-h-0 flex-col border-border md:overflow-hidden md:border-r"
         >
             <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-5 py-3">
-              <BrandImport
+              <BrandNameField
+                companyName={companyName}
+                onCompanyNameChange={setCompanyName}
                 onResult={handleBrandImport}
                 imported={imported}
                 onClear={() => {
@@ -1105,19 +1108,6 @@ export default function Page() {
                     );
                   })}
                 </div>
-              </div>
-
-              <div>
-                <label htmlFor="company-name" className="label-eyebrow mb-2 block">
-                  Company name
-                </label>
-                <Input
-                  id="company-name"
-                  value={companyName}
-                  onChange={(e) => setCompanyName(e.target.value)}
-                  placeholder="Acme Inc."
-                  required
-                />
               </div>
 
               <div>
