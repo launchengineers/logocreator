@@ -58,7 +58,11 @@ export default function ApiKeyDialog({
         ? "It's stored only in this browser and used for your next generation."
         : undefined,
     });
-    onOpenChange(false);
+    // Close a beat later: saving here can immediately open another modal (the
+    // brand kit, when a build was waiting on the key). Letting that modal's
+    // backdrop cover the screen first means the two dialog overlays don't
+    // cross-fade and flash the page through the dip. Harmless for a plain save.
+    setTimeout(() => onOpenChange(false), 220);
   }
 
   return (

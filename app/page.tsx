@@ -437,13 +437,18 @@ export default function Page() {
 
   // Brand kit always requires the user's own key.
   function handleCreateBrandKit(gen: Generation) {
-    setActiveGen(null);
+    // Open the next modal FIRST, then close the lightbox a beat later — once
+    // the new modal's backdrop has covered the screen. Closing it in the same
+    // tick cross-fades the two dialog overlays, and their combined opacity dips
+    // mid-transition, flashing the gallery through. Behind the new overlay the
+    // lightbox close is invisible, so the swap reads as one smooth step.
     if (userAPIKey.trim()) {
       brandKit.start(gen);
     } else {
       setPendingBrandKitGen(gen);
       setApiKeyOpen(true);
     }
+    window.setTimeout(() => setActiveGen(null), 220);
   }
 
   // One logo. On success it pops into the gallery (and on-device history) the

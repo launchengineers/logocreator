@@ -125,6 +125,12 @@ export function useBrandKit(apiKey: string): BrandKitController {
       if (!alive()) return;
       const img = await loadImage(dataUrl);
       if (!alive()) return;
+      // Let the just-opened configure modal paint and finish its enter
+      // animation before the heavy synchronous canvas work below (background
+      // removal + previews); otherwise it blocks the main thread mid-transition
+      // and the modal opens with a visible stutter.
+      await new Promise<void>((r) => setTimeout(r, 0));
+      if (!alive()) return;
       const transparent = makeTransparent(img);
       const pal = kitPalette(img);
       paletteRef.current = pal;
@@ -156,6 +162,12 @@ export function useBrandKit(apiKey: string): BrandKitController {
           hidden: s.hidden,
         })),
       );
+      // Previews are the heaviest step (they render preview canvases, including
+      // a composited mockup scene). Defer them one more frame so the category
+      // cards render first and the previews fill in just after, instead of
+      // janking the open.
+      await new Promise<void>((r) => setTimeout(r, 0));
+      if (!alive()) return;
       setPreviews(
         categoryPreviews(img, transparent, {
           logoType: g.params.logoType,
