@@ -8,6 +8,7 @@ import {
   FileCode2,
   ImageOff,
   Loader2,
+  Package,
   RefreshCw,
   Sparkles,
   SpellCheck,
@@ -197,6 +198,7 @@ export default function GenerationModal({
   busy,
   hasOwnKey,
   credits,
+  hasKit,
   onClose,
   onRegenerate,
   onCreateBrandKit,
@@ -209,6 +211,8 @@ export default function GenerationModal({
   busy: boolean;
   hasOwnKey: boolean;
   credits: number;
+  /** This logo already has a saved brand kit, so the button re-opens it. */
+  hasKit: boolean;
   onClose: () => void;
   onRegenerate: (gen: Generation) => void;
   onCreateBrandKit: (gen: Generation) => void;
@@ -492,10 +496,18 @@ export default function GenerationModal({
                 <Button
                   onClick={() => onCreateBrandKit(gen)}
                   variant="secondary"
-                  className="w-full rounded-lg font-semibold"
+                  className={cn(
+                    "w-full rounded-lg font-semibold",
+                    hasKit &&
+                      "border border-primary/40 bg-primary/10 text-foreground hover:bg-primary/15",
+                  )}
                 >
-                  <Sparkles className="size-4" />
-                  Create brand kit
+                  {hasKit ? (
+                    <Package className="size-4 text-primary" />
+                  ) : (
+                    <Sparkles className="size-4" />
+                  )}
+                  {hasKit ? "Open brand kit" : "Create brand kit"}
                 </Button>
                 <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                   <PngExportMenu

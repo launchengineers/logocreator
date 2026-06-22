@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   type AssetSpec,
   aiAssetSpecs,
@@ -20,6 +20,14 @@ import {
 } from "@/app/lib/brand-kit";
 import { logoToSvgBlob } from "@/app/lib/svg-export";
 import { buildStyleGuide } from "@/app/lib/style-guide";
+import {
+  type KitAsset,
+  clearKits,
+  deleteKit,
+  getKit,
+  getKitIds,
+  saveKit,
+} from "@/app/lib/history-db";
 import { toast } from "@/hooks/use-toast";
 import type { Generation } from "@/app/components/Gallery";
 
@@ -50,19 +58,31 @@ export type BrandKitController = {
   phase: BrandKitPhase;
   /** prepare() failed (decode/fetch); the configure step shows an error + retry. */
   prepareError: boolean;
+  /** Reading a saved kit back from on-device storage (brief). */
+  restoring: boolean;
+  /** True once the kit on screen has been saved against its logo. */
+  saved: boolean;
+  /** Logo ids that have a saved kit, so the UI can flip "Create" → "Open". */
+  savedKitIds: Set<string>;
   doneCount: number;
   total: number;
   zipping: boolean;
   guiding: boolean;
-  /** Begin (or re-focus) a brand kit: opens to the configure step. */
+  /** Open a kit: restores a saved one instantly, else opens the configure step. */
   start: (gen: Generation, apiKeyOverride?: string) => void;
   /** Build only the chosen categories (the rest are dropped). */
   build: (selectedGroups: string[]) => void;
   /** Re-run prepare() for the current logo after a prepare failure. */
   retry: () => void;
+  /** Throw away the saved kit and return to the configure step to rebuild it. */
+  rebuild: () => void;
   show: () => void;
   minimize: () => void;
   discard: () => void;
+  /** Delete a logo's saved kit (called when its logo is removed, or on request). */
+  removeKit: (logoId: string) => void;
+  /** Forget every saved kit (called when history is cleared). */
+  clearAllKits: () => void;
   downloadAll: () => Promise<void>;
   /** Download just the brand-guidelines PDF (without zipping the whole kit). */
   downloadGuide: () => Promise<void>;
@@ -82,6 +102,9 @@ export function useBrandKit(apiKey: string): BrandKitController {
   const [previews, setPreviews] = useState<Record<string, string>>({});
   const [phase, setPhase] = useState<BrandKitPhase>("configure");
   const [prepareError, setPrepareError] = useState(false);
+  const [restoring, setRestoring] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [savedKitIds, setSavedKitIdsState] = useState<Set<string>>(new Set());
   const [zipping, setZipping] = useState(false);
   const [guiding, setGuiding] = useState(false);
 
@@ -91,6 +114,19 @@ export function useBrandKit(apiKey: string): BrandKitController {
   const genRef = useRef<Generation | null>(null);
   const paletteRef = useRef<string[]>([]);
   const specsRef = useRef<AssetSpec[]>([]); // all candidate specs (pre-selection)
+  // Mirror of savedKitIds for synchronous reads inside callbacks (no stale closure).
+  const savedKitIdsRef = useRef<Set<string>>(new Set());
+  const applyKitIds = useCallback((next: Set<string>) => {
+    savedKitIdsRef.current = next;
+    setSavedKitIdsState(next);
+  }, []);
+
+  // Which logos already have a saved kit (ids only, no blobs loaded).
+  useEffect(() => {
+    getKitIds()
+      .then((ids) => applyKitIds(new Set(ids)))
+      .catch(() => {});
+  }, [applyKitIds]);
 
   const cleanup = useCallback(() => {
     tokenRef.current++;
@@ -99,6 +135,8 @@ export function useBrandKit(apiKey: string): BrandKitController {
     blobs.current = new Map();
   }, []);
 
+  // Close + drop the IN-MEMORY kit. A finished kit stays saved on its logo, so
+  // this never loses built work; it just clears the live view.
   const discard = useCallback(() => {
     cleanup();
     genRef.current = null;
@@ -111,6 +149,8 @@ export function useBrandKit(apiKey: string): BrandKitController {
     setPreviews({});
     setPhase("configure");
     setPrepareError(false);
+    setRestoring(false);
+    setSaved(false);
   }, [cleanup]);
 
   // Compute the full candidate asset list + palette + previews, WITHOUT building
@@ -197,75 +237,175 @@ export function useBrandKit(apiKey: string): BrandKitController {
     }
   }, []);
 
-  const build = useCallback(async (selectedGroups: string[]) => {
-    const token = tokenRef.current;
-    const alive = () => token === tokenRef.current;
-    const sel = new Set(selectedGroups);
-    const specs = specsRef.current.filter((s) => sel.has(s.group));
-    if (!specs.length) return;
+  const build = useCallback(
+    async (selectedGroups: string[]) => {
+      const token = tokenRef.current;
+      const alive = () => token === tokenRef.current;
+      const sel = new Set(selectedGroups);
+      const specs = specsRef.current.filter((s) => sel.has(s.group));
+      if (!specs.length) return;
 
-    // Narrow the kit to the chosen categories, then build.
-    setItems(
-      specs.map((s) => ({
-        ...s,
-        status: "pending" as BrandKitStatus,
-        hidden: s.hidden,
-      })),
-    );
-    setPhase("building");
-
-    const set = (filename: string, patch: Partial<BrandKitItem>) => {
-      if (!alive()) return;
-      setItems((prev) =>
-        prev.map((it) => (it.filename === filename ? { ...it, ...patch } : it)),
+      // Narrow the kit to the chosen categories, then build.
+      setItems(
+        specs.map((s) => ({
+          ...s,
+          status: "pending" as BrandKitStatus,
+          hidden: s.hidden,
+        })),
       );
-    };
-    const store = (spec: AssetSpec, blob: Blob) => {
-      blobs.current.set(spec.filename, blob);
-      const url = URL.createObjectURL(blob);
-      urls.current.push(url);
-      set(spec.filename, { status: "done", url });
-    };
-    const buildOne = async (spec: AssetSpec) => {
+      setPhase("building");
+
+      const set = (filename: string, patch: Partial<BrandKitItem>) => {
+        if (!alive()) return;
+        setItems((prev) =>
+          prev.map((it) =>
+            it.filename === filename ? { ...it, ...patch } : it,
+          ),
+        );
+      };
+      const store = (spec: AssetSpec, blob: Blob) => {
+        blobs.current.set(spec.filename, blob);
+        const url = URL.createObjectURL(blob);
+        urls.current.push(url);
+        set(spec.filename, { status: "done", url });
+      };
+      const buildOne = async (spec: AssetSpec) => {
+        if (!alive()) return;
+        set(spec.filename, { status: "building" });
+        try {
+          const blob = await spec.build();
+          if (!alive()) return;
+          store(spec, blob);
+        } catch {
+          if (!alive()) return;
+          set(spec.filename, { status: "error" });
+        }
+      };
+
+      // Deterministic canvas assets first (instant), then AI with concurrency.
+      const det = specs.filter((s) => !AI_GROUPS.has(s.group));
+      const ai = specs.filter((s) => AI_GROUPS.has(s.group));
+      for (const spec of det) {
+        if (!alive()) return;
+        await buildOne(spec);
+      }
+      let idx = 0;
+      const worker = async () => {
+        while (alive()) {
+          const i = idx++;
+          if (i >= ai.length) return;
+          await buildOne(ai[i]);
+        }
+      };
+      await Promise.all(Array.from({ length: AI_CONCURRENCY }, () => worker()));
+
       if (!alive()) return;
-      set(spec.filename, { status: "building" });
+      setPhase("done");
+
+      // Save the finished kit against its logo so re-opening restores it instantly
+      // instead of rebuilding (which would re-spend on the paid AI assets). Only
+      // the assets that actually built are stored; quota failures are non-fatal.
+      const g = genRef.current;
+      if (g && blobs.current.size > 0) {
+        const files: KitAsset[] = specs
+          .filter((s) => blobs.current.has(s.filename))
+          .map((s) => ({
+            path: s.filename,
+            group: s.group,
+            name: s.name,
+            hidden: !!s.hidden,
+            blob: blobs.current.get(s.filename)!,
+          }));
+        const aiCount = files.filter((f) => AI_GROUPS.has(f.group)).length;
+        saveKit({
+          logoId: g.id,
+          companyName: g.companyName,
+          createdAt: Date.now(),
+          palette: paletteRef.current,
+          aiCount,
+          files,
+        })
+          .then(() => {
+            if (genRef.current?.id === g.id) setSaved(true);
+            applyKitIds(new Set(savedKitIdsRef.current).add(g.id));
+          })
+          .catch(() => {
+            /* out of storage: the kit still works this session, just not saved */
+          });
+      }
+    },
+    [applyKitIds],
+  );
+
+  // Bring a previously-saved kit back from on-device storage, straight to its
+  // "done" view (every tile + the zip / style-guide downloads work again),
+  // without re-running any builders or AI calls.
+  const restore = useCallback(
+    async (g: Generation) => {
+      cleanup(); // revoke any prior live urls, bump the token, reset blobs
+      genRef.current = g;
+      specsRef.current = [];
+      setGen(g);
+      setItems([]);
+      setPalette([]);
+      setPreviews({});
+      setPrepareError(false);
+      setSaved(true);
+      setRestoring(true);
+      setPhase("done");
+      setOpen(true);
+      const token = tokenRef.current;
       try {
-        const blob = await spec.build();
-        if (!alive()) return;
-        store(spec, blob);
+        const rec = await getKit(g.id);
+        // A newer start()/discard() ran while we were reading: abandon.
+        if (token !== tokenRef.current) return;
+        if (!rec) {
+          // The id was in the index but the record is gone (evicted/cleared):
+          // fall back to a fresh build rather than showing an empty kit.
+          const next = new Set(savedKitIdsRef.current);
+          next.delete(g.id);
+          applyKitIds(next);
+          setRestoring(false);
+          startFresh(g, apiKey);
+          return;
+        }
+        paletteRef.current = rec.palette;
+        setPalette(rec.palette);
+        const restored: BrandKitItem[] = rec.files.map((f) => {
+          const url = URL.createObjectURL(f.blob);
+          urls.current.push(url);
+          blobs.current.set(f.path, f.blob);
+          return {
+            group: f.group,
+            name: f.name,
+            filename: f.path,
+            hidden: f.hidden,
+            status: "done" as BrandKitStatus,
+            url,
+          };
+        });
+        if (token !== tokenRef.current) return;
+        setItems(restored);
+        setRestoring(false);
       } catch {
-        if (!alive()) return;
-        set(spec.filename, { status: "error" });
+        if (token !== tokenRef.current) return;
+        setRestoring(false);
+        toast({
+          variant: "destructive",
+          title: "Couldn't open the saved kit",
+          description: "Try rebuilding it.",
+        });
       }
-    };
+    },
+    // startFresh is declared below; it is stable (its own deps), so referencing
+    // it here is safe at call time.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [apiKey, cleanup, applyKitIds],
+  );
 
-    // Deterministic canvas assets first (instant), then AI with concurrency.
-    const det = specs.filter((s) => !AI_GROUPS.has(s.group));
-    const ai = specs.filter((s) => AI_GROUPS.has(s.group));
-    for (const spec of det) {
-      if (!alive()) return;
-      await buildOne(spec);
-    }
-    let idx = 0;
-    const worker = async () => {
-      while (alive()) {
-        const i = idx++;
-        if (i >= ai.length) return;
-        await buildOne(ai[i]);
-      }
-    };
-    await Promise.all(Array.from({ length: AI_CONCURRENCY }, () => worker()));
-
-    if (alive()) setPhase("done");
-  }, []);
-
-  const start = useCallback(
-    (g: Generation, apiKeyOverride?: string) => {
-      // Same logo → just re-open (keep whatever phase it's in).
-      if (genRef.current?.id === g.id) {
-        setOpen(true);
-        return;
-      }
+  // Open a kit to its configure step and compute its candidate assets/previews.
+  const startFresh = useCallback(
+    (g: Generation, key: string) => {
       cleanup();
       genRef.current = g;
       paletteRef.current = [];
@@ -274,12 +414,38 @@ export function useBrandKit(apiKey: string): BrandKitController {
       setItems([]);
       setPalette([]);
       setPreviews({});
+      setSaved(false);
+      setRestoring(false);
       setPhase("configure");
       setOpen(true);
-      prepare(g, apiKeyOverride ?? apiKey);
+      prepare(g, key);
     },
-    [apiKey, cleanup, prepare],
+    [cleanup, prepare],
   );
+
+  const start = useCallback(
+    (g: Generation, apiKeyOverride?: string) => {
+      // Same logo → just re-open (keep whatever phase it's in).
+      if (genRef.current?.id === g.id) {
+        setOpen(true);
+        return;
+      }
+      // Has a saved kit → restore it (free, instant). Else build fresh.
+      if (savedKitIdsRef.current.has(g.id)) {
+        restore(g);
+        return;
+      }
+      startFresh(g, apiKeyOverride ?? apiKey);
+    },
+    [apiKey, restore, startFresh],
+  );
+
+  // Discard the saved kit and go back to the configure step to build a new one.
+  const rebuild = useCallback(() => {
+    const g = genRef.current;
+    if (!g) return;
+    startFresh(g, apiKey);
+  }, [apiKey, startFresh]);
 
   const downloadAll = useCallback(async () => {
     const g = genRef.current;
@@ -350,6 +516,24 @@ export function useBrandKit(apiKey: string): BrandKitController {
     if (g) prepare(g, apiKey);
   }, [apiKey, prepare]);
 
+  // Forget a logo's saved kit (e.g. its logo was deleted). Closes the live view
+  // if it's the one on screen.
+  const removeKit = useCallback(
+    (logoId: string) => {
+      deleteKit(logoId).catch(() => {});
+      const next = new Set(savedKitIdsRef.current);
+      if (next.delete(logoId)) applyKitIds(next);
+      if (genRef.current?.id === logoId) discard();
+    },
+    [applyKitIds, discard],
+  );
+
+  const clearAllKits = useCallback(() => {
+    clearKits().catch(() => {});
+    applyKitIds(new Set());
+    if (genRef.current) discard();
+  }, [applyKitIds, discard]);
+
   const show = useCallback(() => setOpen(true), []);
   const minimize = useCallback(() => setOpen(false), []);
 
@@ -361,6 +545,9 @@ export function useBrandKit(apiKey: string): BrandKitController {
     previews,
     phase,
     prepareError,
+    restoring,
+    saved,
+    savedKitIds,
     // Hidden items (favicon size variants) still build + zip, but aren't shown
     // or counted, so the progress matches the visible tiles.
     doneCount: items.filter((i) => !i.hidden && i.status === "done").length,
@@ -370,9 +557,12 @@ export function useBrandKit(apiKey: string): BrandKitController {
     start,
     build,
     retry,
+    rebuild,
     show,
     minimize,
     discard,
+    removeKit,
+    clearAllKits,
     downloadAll,
     downloadGuide,
   };

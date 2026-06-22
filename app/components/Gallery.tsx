@@ -3,7 +3,14 @@
 import { useState } from "react";
 import Image from "next/image";
 import { AnimatePresence, motion } from "framer-motion";
-import { Download, ImageOff, RefreshCw, Sparkles, Star } from "lucide-react";
+import {
+  Download,
+  ImageOff,
+  Package,
+  RefreshCw,
+  Sparkles,
+  Star,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import { slugify } from "@/app/lib/brand-kit";
 import { Tip } from "./ui/tooltip";
@@ -57,6 +64,7 @@ function GenerationCell({
   gen,
   index,
   busy,
+  hasKit,
   onVary,
   onOpen,
   onCreateBrandKit,
@@ -65,6 +73,7 @@ function GenerationCell({
   gen: Generation;
   index: number;
   busy: boolean;
+  hasKit: boolean;
   onVary: (gen: Generation) => void;
   onOpen: (gen: Generation) => void;
   onCreateBrandKit: (gen: Generation) => void;
@@ -140,6 +149,24 @@ function GenerationCell({
           <Star className={cn("size-3.5", gen.favorite && "fill-amber-300")} />
         </button>
       </Tip>
+      {/* Brand-kit badge: always visible on logos that have one, and a one-tap
+          shortcut back into the saved kit. */}
+      {hasKit && (
+        <Tip label="Open brand kit" side="left">
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onCreateBrandKit(gen);
+            }}
+            aria-label="Open brand kit"
+            className="absolute right-2 top-2 z-10 flex items-center gap-1 rounded-full border border-white/15 bg-primary/90 px-2 py-1 text-[0.65rem] font-semibold text-primary-foreground shadow-sm outline-none backdrop-blur-md transition-colors hover:bg-primary focus-visible:ring-2 focus-visible:ring-white/60 [@media(hover:none)]:py-1.5"
+          >
+            <Package className="size-3" strokeWidth={2.5} />
+            Kit
+          </button>
+        </Tip>
+      )}
       {/* Revealed on hover OR keyboard focus; always visible on touch (no hover there) */}
       <div className="pointer-events-none absolute inset-0 flex items-end justify-center bg-gradient-to-t from-black/45 via-black/0 to-transparent opacity-0 transition-opacity duration-200 group-focus-within:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100">
         <div className="pointer-events-auto mb-3 flex items-center gap-1 rounded-full border border-white/15 bg-black/55 p-1 backdrop-blur-md">
@@ -154,17 +181,21 @@ function GenerationCell({
               <Download className="size-4" />
             </a>
           </Tip>
-          <Tip label="Create brand kit">
+          <Tip label={hasKit ? "Open brand kit" : "Create brand kit"}>
             <button
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
                 onCreateBrandKit(gen);
               }}
-              aria-label="Create brand kit"
+              aria-label={hasKit ? "Open brand kit" : "Create brand kit"}
               className="flex size-8 items-center justify-center rounded-full text-white/90 outline-none transition-colors hover:bg-white/15 focus-visible:bg-white/20 focus-visible:ring-2 focus-visible:ring-white/60 [@media(hover:none)]:size-9"
             >
-              <Sparkles className="size-4" />
+              {hasKit ? (
+                <Package className="size-4" />
+              ) : (
+                <Sparkles className="size-4" />
+              )}
             </button>
           </Tip>
           <Tip label={busy ? "Still generating…" : "Make variations"}>
@@ -190,6 +221,7 @@ function GenerationCell({
 export default function Gallery({
   generations,
   pendingCount,
+  savedKitIds,
   onVary,
   onOpen,
   onCreateBrandKit,
@@ -197,6 +229,7 @@ export default function Gallery({
 }: {
   generations: Generation[];
   pendingCount: number;
+  savedKitIds: Set<string>;
   onVary: (gen: Generation) => void;
   onOpen: (gen: Generation) => void;
   onCreateBrandKit: (gen: Generation) => void;
@@ -229,6 +262,7 @@ export default function Gallery({
             gen={gen}
             index={i}
             busy={pendingCount > 0}
+            hasKit={savedKitIds.has(gen.id)}
             onVary={onVary}
             onOpen={onOpen}
             onCreateBrandKit={onCreateBrandKit}

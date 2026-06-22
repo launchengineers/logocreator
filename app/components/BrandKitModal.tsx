@@ -10,6 +10,7 @@ import {
   Loader2,
   Maximize2,
   Package,
+  RotateCcw,
   Sparkles,
   Trash2,
   X,
@@ -63,6 +64,8 @@ export default function BrandKitModal({
   palette,
   previews,
   prepareError,
+  restoring,
+  saved,
   phase,
   doneCount,
   total,
@@ -70,6 +73,8 @@ export default function BrandKitModal({
   guiding,
   onMinimize,
   onDiscard,
+  onRebuild,
+  onRemoveKit,
   onDownloadAll,
   onDownloadGuide,
   onBuild,
@@ -81,6 +86,8 @@ export default function BrandKitModal({
   palette: string[];
   previews: Record<string, string>;
   prepareError: boolean;
+  restoring: boolean;
+  saved: boolean;
   phase: BrandKitPhase;
   doneCount: number;
   total: number;
@@ -88,6 +95,8 @@ export default function BrandKitModal({
   guiding: boolean;
   onMinimize: () => void;
   onDiscard: () => void;
+  onRebuild: () => void;
+  onRemoveKit: () => void;
   onDownloadAll: () => void;
   onDownloadGuide: () => void;
   onBuild: (groups: string[]) => void;
@@ -97,11 +106,14 @@ export default function BrandKitModal({
   const [zoomed, setZoomed] = useState<BrandKitItem | null>(null);
   // Two-click guard for Discard once assets (some paid) have been built.
   const [confirmDiscard, setConfirmDiscard] = useState(false);
+  // Two-click guard for permanently deleting a SAVED kit.
+  const [confirmRemove, setConfirmRemove] = useState(false);
   // Close the lightbox if the kit modal itself closes.
   useEffect(() => {
     if (!open) {
       setZoomed(null);
       setConfirmDiscard(false);
+      setConfirmRemove(false);
     }
   }, [open]);
 
@@ -121,203 +133,271 @@ export default function BrandKitModal({
 
   return (
     <>
-    <Dialog
-      open={open}
-      onOpenChange={(o) => {
-        // Any close gesture (X / Esc / outside) minimizes, keeps building.
-        if (!o) onMinimize();
-      }}
-    >
-      {gen && phase === "configure" ? (
-        <ConfigureView
-          gen={gen}
-          items={items}
-          previews={previews}
-          prepareError={prepareError}
-          onBuild={onBuild}
-          onDiscard={onDiscard}
-          onRetry={onRetry}
-        />
-      ) : gen ? (
-        <DialogContent className="flex max-h-[88svh] max-w-4xl flex-col gap-0 overflow-hidden rounded-2xl p-0">
-          <DialogHeader className="space-y-1 border-b border-border px-6 py-5 pr-12 text-left">
-            <DialogTitle className="text-lg">
-              {phase === "done"
-                ? "Your brand kit is ready"
-                : "Building your brand kit"}
+      <Dialog
+        open={open}
+        onOpenChange={(o) => {
+          // Any close gesture (X / Esc / outside) minimizes, keeps building.
+          if (!o) onMinimize();
+        }}
+      >
+        {gen && restoring ? (
+          <DialogContent className="flex max-w-md flex-col items-center gap-3 rounded-2xl px-6 py-12 text-center">
+            <DialogTitle className="text-base">
+              Opening your brand kit
             </DialogTitle>
-            <DialogDescription>
-              {gen.companyName || "Your logo"}: variants, icons, social assets,
-              product mockups and a color palette.
+            <DialogDescription className="sr-only">
+              Restoring the saved brand kit for {gen.companyName || "your logo"}
+              .
             </DialogDescription>
-            <p
-              className="text-xs text-muted-foreground"
-              title="Together AI bills only the AI renders (product mockups + logo lockups) to your key. Everything else (variants, icons, favicons, social, backgrounds) is generated on-device for free."
-            >
-              ~{formatUsd(aiCost)} in AI credits · {aiCount} AI render
-              {aiCount === 1 ? "" : "s"}, everything else free
+            <Loader2 className="size-6 animate-spin text-primary" />
+            <p className="text-sm text-muted-foreground">
+              Loading {gen.companyName || "your logo"}&apos;s saved assets…
             </p>
-          </DialogHeader>
+          </DialogContent>
+        ) : gen && phase === "configure" ? (
+          <ConfigureView
+            gen={gen}
+            items={items}
+            previews={previews}
+            prepareError={prepareError}
+            onBuild={onBuild}
+            onDiscard={onDiscard}
+            onRetry={onRetry}
+          />
+        ) : gen ? (
+          <DialogContent className="flex max-h-[88svh] max-w-4xl flex-col gap-0 overflow-hidden rounded-2xl p-0">
+            <DialogHeader className="space-y-1 border-b border-border px-6 py-5 pr-12 text-left">
+              <DialogTitle className="text-lg">
+                {phase === "done"
+                  ? "Your brand kit is ready"
+                  : "Building your brand kit"}
+              </DialogTitle>
+              <DialogDescription>
+                {gen.companyName || "Your logo"}: variants, icons, social
+                assets, product mockups and a color palette.
+              </DialogDescription>
+              <p
+                className="text-xs text-muted-foreground"
+                title="Together AI bills only the AI renders (product mockups + logo lockups) to your key. Everything else (variants, icons, favicons, social, backgrounds) is generated on-device for free."
+              >
+                ~{formatUsd(aiCost)} in AI credits · {aiCount} AI render
+                {aiCount === 1 ? "" : "s"}, everything else free
+              </p>
+            </DialogHeader>
 
-          {/* Progress */}
-          <div className="border-b border-border px-6 py-3">
-            <div className="mb-2 flex items-center justify-between gap-3 text-xs text-muted-foreground">
-              <span className="tabular-nums">
-                {doneCount} of {total || "…"} assets
-              </span>
-              {phase === "building" ? (
-                <span className="flex min-w-0 items-center gap-1.5">
-                  <Sparkles className="size-3 shrink-0 animate-pulse text-primary" />
-                  <span className="truncate">
-                    {nowRendering
-                      ? `Rendering ${nowRendering}…`
-                      : "Preparing your assets…"}
-                  </span>
+            {/* Progress */}
+            <div className="border-b border-border px-6 py-3">
+              <div className="mb-2 flex items-center justify-between gap-3 text-xs text-muted-foreground">
+                <span className="tabular-nums">
+                  {doneCount} of {total || "…"} assets
                 </span>
-              ) : (
-                <span className="flex items-center gap-1.5 text-primary">
-                  <Check className="size-3" strokeWidth={3} /> Done
-                </span>
-              )}
-            </div>
-            <div className="relative h-1.5 w-full overflow-hidden rounded-full bg-secondary">
-              <div
-                className="h-full rounded-full bg-primary transition-all duration-500"
-                style={{ width: `${pct}%` }}
-              />
-              {phase === "building" && (
-                <div className="indeterminate-bar pointer-events-none absolute inset-0" />
-              )}
-            </div>
-          </div>
-
-          {/* Body */}
-          <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-6 py-5">
-            {palette.length > 0 && (
-              <div>
-                <span className="label-eyebrow mb-2.5 block">Color palette</span>
-                <div className="flex flex-wrap gap-2">
-                  {palette.map((hex) => (
-                    <span
-                      key={hex}
-                      title={hex}
-                      className="flex items-center gap-1.5 rounded-full border border-border py-1 pl-1 pr-2.5"
-                    >
-                      <span
-                        className="size-5 rounded-full ring-1 ring-foreground/10"
-                        style={{ backgroundColor: hex }}
-                      />
-                      <span className="text-xs font-medium uppercase text-muted-foreground">
-                        {hex}
-                      </span>
+                {phase === "building" ? (
+                  <span className="flex min-w-0 items-center gap-1.5">
+                    <Sparkles className="size-3 shrink-0 animate-pulse text-primary" />
+                    <span className="truncate">
+                      {nowRendering
+                        ? `Rendering ${nowRendering}…`
+                        : "Preparing your assets…"}
                     </span>
-                  ))}
-                </div>
+                  </span>
+                ) : (
+                  <span className="flex items-center gap-1.5 text-primary">
+                    <Check className="size-3" strokeWidth={3} /> Done
+                  </span>
+                )}
               </div>
-            )}
+              <div className="relative h-1.5 w-full overflow-hidden rounded-full bg-secondary">
+                <div
+                  className="h-full rounded-full bg-primary transition-all duration-500"
+                  style={{ width: `${pct}%` }}
+                />
+                {phase === "building" && (
+                  <div className="indeterminate-bar pointer-events-none absolute inset-0" />
+                )}
+              </div>
+            </div>
 
-            {groups.map((group) => {
-              const showcase =
-                group === "Mockups" || group === "Web & social";
-              const groupItems = visibleItems.filter((i) => i.group === group);
-              return (
-                <div key={group}>
-                  <div className="mb-2.5 flex items-center gap-2">
-                    <span className="label-eyebrow">{group}</span>
-                    <GroupProgress items={groupItems} />
-                  </div>
-                  <div
-                    className={cn(
-                      "grid gap-3",
-                      showcase
-                        ? "grid-cols-2 sm:grid-cols-3"
-                        : "grid-cols-3 sm:grid-cols-4 md:grid-cols-5",
-                    )}
-                  >
-                    {groupItems.map((item) => (
-                      <AssetTile
-                        key={item.filename}
-                        item={item}
-                        wide={showcase}
-                        onZoom={setZoomed}
-                      />
+            {/* Body */}
+            <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-6 py-5">
+              {palette.length > 0 && (
+                <div>
+                  <span className="label-eyebrow mb-2.5 block">
+                    Color palette
+                  </span>
+                  <div className="flex flex-wrap gap-2">
+                    {palette.map((hex) => (
+                      <span
+                        key={hex}
+                        title={hex}
+                        className="flex items-center gap-1.5 rounded-full border border-border py-1 pl-1 pr-2.5"
+                      >
+                        <span
+                          className="size-5 rounded-full ring-1 ring-foreground/10"
+                          style={{ backgroundColor: hex }}
+                        />
+                        <span className="text-xs font-medium uppercase text-muted-foreground">
+                          {hex}
+                        </span>
+                      </span>
                     ))}
                   </div>
                 </div>
-              );
-            })}
-          </div>
-
-          {/* Footer */}
-          <div className="flex flex-col-reverse gap-2 border-t border-border px-6 py-4 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
-            <button
-              type="button"
-              onClick={() => {
-                // Once assets exist (the AI ones cost real credits), a single
-                // misclick shouldn't destroy them: ask for a second click.
-                if (doneCount > 0 && !confirmDiscard) {
-                  setConfirmDiscard(true);
-                  return;
-                }
-                setConfirmDiscard(false);
-                onDiscard();
-              }}
-              onMouseLeave={() => setConfirmDiscard(false)}
-              onBlur={() => setConfirmDiscard(false)}
-              aria-label={
-                confirmDiscard
-                  ? "Confirm discard: this deletes every built asset"
-                  : "Discard this brand kit"
-              }
-              className={cn(
-                "flex items-center justify-center gap-1.5 rounded-lg px-2 py-2 text-xs font-medium transition-colors sm:justify-start sm:py-1",
-                confirmDiscard
-                  ? "text-destructive"
-                  : "text-muted-foreground hover:text-destructive",
               )}
-            >
-              <Trash2 className="size-3.5" />
-              {confirmDiscard ? "Discard everything?" : "Discard"}
-            </button>
-            <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center sm:gap-3">
-              <span className="hidden text-xs text-muted-foreground lg:block">
-                {phase === "done"
-                  ? "All set. Download the full kit."
-                  : "Close anytime, it keeps building in the background."}
-              </span>
-              {phase === "done" && (
-                <Button
-                  variant="secondary"
-                  onClick={onDownloadGuide}
-                  disabled={doneCount === 0 || guiding}
-                  className="w-full rounded-lg font-semibold sm:w-auto"
+
+              {groups.map((group) => {
+                const showcase =
+                  group === "Mockups" || group === "Web & social";
+                const groupItems = visibleItems.filter(
+                  (i) => i.group === group,
+                );
+                return (
+                  <div key={group}>
+                    <div className="mb-2.5 flex items-center gap-2">
+                      <span className="label-eyebrow">{group}</span>
+                      <GroupProgress items={groupItems} />
+                    </div>
+                    <div
+                      className={cn(
+                        "grid gap-3",
+                        showcase
+                          ? "grid-cols-2 sm:grid-cols-3"
+                          : "grid-cols-3 sm:grid-cols-4 md:grid-cols-5",
+                      )}
+                    >
+                      {groupItems.map((item) => (
+                        <AssetTile
+                          key={item.filename}
+                          item={item}
+                          wide={showcase}
+                          onZoom={setZoomed}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Footer */}
+            <div className="flex flex-col-reverse gap-2 border-t border-border px-6 py-4 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+              {phase === "done" ? (
+                // Saved on its logo, so there's nothing to lose by closing. Offer a
+                // rebuild and an explicit (guarded) delete instead of a "discard".
+                <div className="flex items-center gap-3">
+                  {saved && (
+                    <span className="flex items-center gap-1.5 text-xs font-medium text-primary">
+                      <Check className="size-3.5" strokeWidth={3} />
+                      Saved to this logo
+                    </span>
+                  )}
+                  <Tip label="Build this kit again from scratch" side="top">
+                    <button
+                      type="button"
+                      onClick={onRebuild}
+                      className="flex items-center gap-1.5 rounded-lg px-1 py-1 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+                    >
+                      <RotateCcw className="size-3.5" />
+                      Rebuild
+                    </button>
+                  </Tip>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!confirmRemove) {
+                        setConfirmRemove(true);
+                        return;
+                      }
+                      setConfirmRemove(false);
+                      onRemoveKit();
+                    }}
+                    onMouseLeave={() => setConfirmRemove(false)}
+                    onBlur={() => setConfirmRemove(false)}
+                    aria-label={
+                      confirmRemove
+                        ? "Confirm: permanently delete this saved kit"
+                        : "Delete this saved kit"
+                    }
+                    className={cn(
+                      "flex items-center gap-1.5 rounded-lg px-1 py-1 text-xs font-medium transition-colors",
+                      confirmRemove
+                        ? "text-destructive"
+                        : "text-muted-foreground hover:text-destructive",
+                    )}
+                  >
+                    <Trash2 className="size-3.5" />
+                    {confirmRemove ? "Delete kit?" : "Delete"}
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    // The in-progress build isn't saved yet and the AI renders cost
+                    // real credits, so a single misclick shouldn't bin them.
+                    if (doneCount > 0 && !confirmDiscard) {
+                      setConfirmDiscard(true);
+                      return;
+                    }
+                    setConfirmDiscard(false);
+                    onDiscard();
+                  }}
+                  onMouseLeave={() => setConfirmDiscard(false)}
+                  onBlur={() => setConfirmDiscard(false)}
+                  aria-label={
+                    confirmDiscard
+                      ? "Confirm discard: this deletes every built asset"
+                      : "Discard this brand kit"
+                  }
+                  className={cn(
+                    "flex items-center justify-center gap-1.5 rounded-lg px-2 py-2 text-xs font-medium transition-colors sm:justify-start sm:py-1",
+                    confirmDiscard
+                      ? "text-destructive"
+                      : "text-muted-foreground hover:text-destructive",
+                  )}
                 >
-                  {guiding ? (
+                  <Trash2 className="size-3.5" />
+                  {confirmDiscard ? "Discard everything?" : "Discard"}
+                </button>
+              )}
+              <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center sm:gap-3">
+                <span className="hidden text-xs text-muted-foreground lg:block">
+                  {phase === "done"
+                    ? "Reopen this kit anytime from the logo."
+                    : "Close anytime, it keeps building in the background."}
+                </span>
+                {phase === "done" && (
+                  <Button
+                    variant="secondary"
+                    onClick={onDownloadGuide}
+                    disabled={doneCount === 0 || guiding}
+                    className="w-full rounded-lg font-semibold sm:w-auto"
+                  >
+                    {guiding ? (
+                      <Loader2 className="size-4 animate-spin" />
+                    ) : (
+                      <FileText className="size-4" />
+                    )}
+                    Style guide
+                  </Button>
+                )}
+                <Button
+                  onClick={onDownloadAll}
+                  disabled={doneCount === 0 || zipping}
+                  className="w-full rounded-lg font-bold sm:w-auto"
+                >
+                  {zipping ? (
                     <Loader2 className="size-4 animate-spin" />
                   ) : (
-                    <FileText className="size-4" />
+                    <Package className="size-4" />
                   )}
-                  Style guide
+                  Download all (.zip)
                 </Button>
-              )}
-              <Button
-                onClick={onDownloadAll}
-                disabled={doneCount === 0 || zipping}
-                className="w-full rounded-lg font-bold sm:w-auto"
-              >
-                {zipping ? (
-                  <Loader2 className="size-4 animate-spin" />
-                ) : (
-                  <Package className="size-4" />
-                )}
-                Download all (.zip)
-              </Button>
+              </div>
             </div>
-          </div>
-        </DialogContent>
-      ) : null}
-    </Dialog>
-    <AssetLightbox item={zoomed} onClose={() => setZoomed(null)} />
+          </DialogContent>
+        ) : null}
+      </Dialog>
+      <AssetLightbox item={zoomed} onClose={() => setZoomed(null)} />
     </>
   );
 }
@@ -451,8 +531,8 @@ function ConfigureView({
           prepareError ? (
             <div className="flex h-48 flex-col items-center justify-center gap-3 px-6 text-center text-sm">
               <p className="text-muted-foreground">
-                Couldn&apos;t prepare this logo&apos;s assets. The image may have
-                failed to load.
+                Couldn&apos;t prepare this logo&apos;s assets. The image may
+                have failed to load.
               </p>
               <div className="flex gap-2">
                 <Button type="button" variant="secondary" onClick={onDiscard}>
@@ -629,7 +709,7 @@ function AssetTile({
           ) : item.status === "error" ? (
             <X className="size-4 text-muted-foreground/40" />
           ) : (
-            <span className="size-1.5 animate-tile-breathe rounded-full bg-muted-foreground/40" />
+            <span className="animate-tile-breathe size-1.5 rounded-full bg-muted-foreground/40" />
           )}
           <span className="line-clamp-2 text-[0.6875rem] font-medium leading-tight text-muted-foreground">
             {item.status === "error" ? `${item.name}: failed` : item.name}
@@ -650,7 +730,7 @@ function AssetTile({
             download={item.filename.split("/").pop()}
             onClick={(e) => e.stopPropagation()}
             aria-label={`Download ${item.name}`}
-            className="absolute bottom-1.5 left-1.5 z-10 flex size-6 items-center justify-center rounded-full bg-black/60 text-white opacity-0 backdrop-blur outline-none transition-opacity hover:bg-black/80 group-hover/tile:opacity-100 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-white/60 [@media(hover:none)]:size-8 [@media(hover:none)]:opacity-100"
+            className="absolute bottom-1.5 left-1.5 z-10 flex size-6 items-center justify-center rounded-full bg-black/60 text-white opacity-0 outline-none backdrop-blur transition-opacity hover:bg-black/80 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-white/60 group-hover/tile:opacity-100 [@media(hover:none)]:size-8 [@media(hover:none)]:opacity-100"
           >
             <Download className="size-3" />
           </a>

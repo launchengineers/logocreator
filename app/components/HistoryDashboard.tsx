@@ -7,6 +7,7 @@ import {
   FolderOpen,
   History,
   Loader2,
+  Package,
   Sparkles,
   Star,
   Trash2,
@@ -51,6 +52,7 @@ export default function HistoryDashboard({
   open,
   onClose,
   generations,
+  savedKitIds,
   onOpen,
   onCreateBrandKit,
   onLoad,
@@ -61,6 +63,7 @@ export default function HistoryDashboard({
   open: boolean;
   onClose: () => void;
   generations: Generation[];
+  savedKitIds: Set<string>;
   onOpen: (gen: Generation) => void;
   onCreateBrandKit: (gen: Generation) => void;
   onLoad: (params: GenParams) => void;
@@ -182,6 +185,7 @@ export default function HistoryDashboard({
                       <HistoryTile
                         key={gen.id}
                         gen={gen}
+                        hasKit={savedKitIds.has(gen.id)}
                         onOpen={onOpen}
                         onCreateBrandKit={onCreateBrandKit}
                         onLoad={onLoad}
@@ -202,6 +206,7 @@ export default function HistoryDashboard({
 
 function HistoryTile({
   gen,
+  hasKit,
   onOpen,
   onCreateBrandKit,
   onLoad,
@@ -209,6 +214,7 @@ function HistoryTile({
   onToggleFavorite,
 }: {
   gen: Generation;
+  hasKit: boolean;
   onOpen: (gen: Generation) => void;
   onCreateBrandKit: (gen: Generation) => void;
   onLoad: (params: GenParams) => void;
@@ -333,11 +339,15 @@ function HistoryTile({
               e.stopPropagation();
               onCreateBrandKit(gen);
             }}
-            title="Create brand kit"
-            aria-label="Create brand kit"
-            className={pill}
+            title={hasKit ? "Open brand kit" : "Create brand kit"}
+            aria-label={hasKit ? "Open brand kit" : "Create brand kit"}
+            className={cn(pill, hasKit && "text-primary")}
           >
-            <Sparkles className="size-3.5" />
+            {hasKit ? (
+              <Package className="size-3.5" />
+            ) : (
+              <Sparkles className="size-3.5" />
+            )}
           </button>
           <button
             type="button"

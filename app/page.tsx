@@ -436,14 +436,15 @@ export default function Page() {
     }
   }
 
-  // Brand kit always requires the user's own key.
+  // Building a NEW kit needs the user's own key; re-opening a kit they've
+  // already saved is free (no AI calls), so it skips the key gate entirely.
   function handleCreateBrandKit(gen: Generation) {
-    // Open the next modal FIRST, then close the lightbox a beat later — once
+    // Open the next modal FIRST, then close the lightbox a beat later, once
     // the new modal's backdrop has covered the screen. Closing it in the same
     // tick cross-fades the two dialog overlays, and their combined opacity dips
     // mid-transition, flashing the gallery through. Behind the new overlay the
     // lightbox close is invisible, so the swap reads as one smooth step.
-    if (userAPIKey.trim()) {
+    if (brandKit.savedKitIds.has(gen.id) || userAPIKey.trim()) {
       brandKit.start(gen);
     } else {
       setPendingBrandKitGen(gen);
@@ -987,6 +988,8 @@ export default function Page() {
     });
     savePromises.current.delete(id);
     deleteLogo(id).catch(onPersistError);
+    // A logo's brand kit goes with it (no point keeping an orphaned kit).
+    brandKit.removeKit(id);
   }
 
   function handleClearHistory() {
@@ -996,6 +999,7 @@ export default function Page() {
     });
     setGenerations([]);
     clearLogos().catch(() => {});
+    brandKit.clearAllKits();
     toast({
       title: "History cleared",
       description: `${n} ${n === 1 ? "logo" : "logos"} removed from this device.`,
@@ -1423,6 +1427,7 @@ export default function Page() {
           <Gallery
             generations={generations}
             pendingCount={pendingCount}
+            savedKitIds={brandKit.savedKitIds}
             onVary={(gen) => runBatch(gen.params, variationCount)}
             onOpen={(gen) => setActiveGen(gen)}
             onCreateBrandKit={handleCreateBrandKit}
@@ -1437,6 +1442,7 @@ export default function Page() {
         busy={isGenerating}
         hasOwnKey={hasOwnKey}
         credits={credits}
+        hasKit={!!activeGen && brandKit.savedKitIds.has(activeGen.id)}
         onClose={() => setActiveGen(null)}
         onRegenerate={redoInModal}
         onCreateBrandKit={handleCreateBrandKit}
@@ -1451,6 +1457,8 @@ export default function Page() {
         palette={brandKit.palette}
         previews={brandKit.previews}
         prepareError={brandKit.prepareError}
+        restoring={brandKit.restoring}
+        saved={brandKit.saved}
         phase={brandKit.phase}
         doneCount={brandKit.doneCount}
         total={brandKit.total}
@@ -1458,6 +1466,10 @@ export default function Page() {
         guiding={brandKit.guiding}
         onMinimize={brandKit.minimize}
         onDiscard={brandKit.discard}
+        onRebuild={brandKit.rebuild}
+        onRemoveKit={() =>
+          brandKit.gen && brandKit.removeKit(brandKit.gen.id)
+        }
         onDownloadAll={brandKit.downloadAll}
         onDownloadGuide={brandKit.downloadGuide}
         onBuild={brandKit.build}
@@ -1478,6 +1490,7 @@ export default function Page() {
         open={historyOpen}
         onClose={() => setHistoryOpen(false)}
         generations={generations}
+        savedKitIds={brandKit.savedKitIds}
         onOpen={(gen) => {
           setHistoryOpen(false);
           setActiveGen(gen);
