@@ -29,7 +29,12 @@ function isBlockedHost(hostname: string): boolean {
     return true;
   }
   // IPv6 loopback / unique-local / link-local.
-  if (h === "::1" || h.startsWith("fc") || h.startsWith("fd") || h.startsWith("fe80")) {
+  if (
+    h === "::1" ||
+    h.startsWith("fc") ||
+    h.startsWith("fd") ||
+    h.startsWith("fe80")
+  ) {
     return true;
   }
   // IPv4 literals in private / loopback / link-local / metadata ranges.
@@ -44,24 +49,64 @@ function isBlockedHost(hostname: string): boolean {
   return false;
 }
 
-// Reject IPs in loopback / private / link-local / metadata ranges, including
-// IPv4-mapped IPv6 forms, so a hostname that resolves to an internal address
-// cannot slip past the string check above.
-function isBlockedIp(ip: string): boolean {
-  const h = ip.toLowerCase().trim().replace(/^\[|\]$/g, "");
-  const mapped = h.match(/^::ffff:(.+)$/);
-  if (mapped) {
-    const rest = mapped[1];
-    if (/^\d{1,3}(\.\d{1,3}){3}$/.test(rest)) return isBlockedIp(rest);
-    const hx = rest.match(/^([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
-    if (hx) {
-      const a = parseInt(hx[1], 16);
-      const b = parseInt(hx[2], 16);
-      return isBlockedIp(
-        `${(a >> 8) & 255}.${a & 255}.${(b >> 8) & 255}.${b & 255}`,
-      );
-    }
+// Expand an IPv6 literal to its 8 16-bit groups (handles "::" compression and a
+// dotted-IPv4 tail like ::ffff:1.2.3.4). Returns null if it isn't parseable.
+function expandIpv6(ip: string): number[] | null {
+  let h = ip
+    .toLowerCase()
+    .replace(/^\[|\]$/g, "")
+    .split("%")[0];
+  if (!h.includes(":")) return null;
+  const dotted = h.match(/^(.*:)(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (dotted) {
+    const b = [+dotted[2], +dotted[3], +dotted[4], +dotted[5]];
+    if (b.some((n) => n > 255)) return null;
+    h = `${dotted[1]}${((b[0] << 8) | b[1]).toString(16)}:${((b[2] << 8) | b[3]).toString(16)}`;
   }
+  const halves = h.split("::");
+  if (halves.length > 2) return null;
+  const head = halves[0] ? halves[0].split(":") : [];
+  const tail = halves.length === 2 && halves[1] ? halves[1].split(":") : [];
+  let groups: string[];
+  if (halves.length === 1) {
+    if (head.length !== 8) return null;
+    groups = head;
+  } else {
+    const fill = 8 - head.length - tail.length;
+    if (fill < 1) return null; // "::" must stand for at least one zero group
+    groups = [...head, ...Array(fill).fill("0"), ...tail];
+  }
+  const g = groups.map((x) => parseInt(x || "0", 16));
+  return g.length === 8 &&
+    !g.some((n) => Number.isNaN(n) || n < 0 || n > 0xffff)
+    ? g
+    : null;
+}
+
+// The IPv4 that an IPv6 address embeds (mapped ::ffff:/96, NAT64 64:ff9b::/96,
+// 6to4 2002::/16), or null. This is what lets us classify a NAT64 address by the
+// real IPv4 inside it: a wrapped public host stays allowed, a wrapped internal
+// one (e.g. 64:ff9b::7f00:1 = 127.0.0.1) is still blocked.
+function embeddedIpv4(g: number[]): string | null {
+  const tail = `${(g[6] >> 8) & 255}.${g[6] & 255}.${(g[7] >> 8) & 255}.${g[7] & 255}`;
+  const zero4 =
+    g[0] === 0 && g[1] === 0 && g[2] === 0 && g[3] === 0 && g[4] === 0;
+  if (zero4 && g[5] === 0xffff) return tail; // ::ffff:0:0/96 (IPv4-mapped)
+  if (zero4 && g[5] === 0) return tail; // ::/96 (covers ::1, ::, IPv4-compatible)
+  if (g[0] === 0x64 && g[1] === 0xff9b && zero4) return tail; // 64:ff9b::/96 NAT64
+  if (g[0] === 0x2002)
+    return `${(g[1] >> 8) & 255}.${g[1] & 255}.${(g[2] >> 8) & 255}.${g[2] & 255}`; // 6to4
+  return null;
+}
+
+// Reject IPs in loopback / private / link-local / metadata ranges, including the
+// IPv4-embedding IPv6 forms above, so a hostname that resolves to an internal
+// address cannot slip past as an IPv6 literal.
+function isBlockedIp(ip: string): boolean {
+  const h = ip
+    .toLowerCase()
+    .trim()
+    .replace(/^\[|\]$/g, "");
   const m = h.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
   if (m) {
     const a = Number(m[1]);
@@ -75,32 +120,47 @@ function isBlockedIp(ip: string): boolean {
     if (a >= 224) return true; // multicast + reserved
     return false;
   }
-  if (h === "::1" || h === "::") return true;
-  if (h.startsWith("fc") || h.startsWith("fd")) return true; // unique-local
-  if (h.startsWith("fe80")) return true; // link-local
-  return false;
+  const g = expandIpv6(h);
+  if (g) {
+    const v4 = embeddedIpv4(g);
+    if (v4) return isBlockedIp(v4);
+    if ((g[0] & 0xfe00) === 0xfc00) return true; // fc00::/7 unique-local
+    if ((g[0] & 0xffc0) === 0xfe80) return true; // fe80::/10 link-local
+    return false;
+  }
+  return false; // unparseable: don't positively block (fetch will handle it)
 }
 
-// Resolve a hostname and confirm EVERY address it maps to is public. This is
-// what defeats DNS-rebinding: a public-looking host whose A record points at an
-// internal IP is rejected before we ever connect to it.
+// Resolve a hostname and decide whether it's safe to fetch. Three outcomes:
+//   "private":    it resolves to a loopback / private / metadata address, BLOCK
+//                 (this is the DNS-rebinding defense: a public-looking host whose
+//                 A record points inside is rejected before we connect).
+//   "unresolved": DNS lookup failed or returned nothing. This is NOT a positive
+//                 internal hit, so we do NOT block: a host that can't be resolved
+//                 can't reach an internal service either, and fetch will surface
+//                 a clear "couldn't reach" error. (Treating this as "blocked" is
+//                 what falsely rejected legit public sites such as together.ai on
+//                 IPv6 / NAT64 networks where dns.lookup hiccups.)
+//   "ok":         resolves only to public addresses.
 //
-// Known residual risk (accepted): fetch() runs its own DNS resolution after
-// this check, so an attacker-controlled DNS server could answer the check with
-// a public IP and the connect with a private one (resolve/connect TOCTOU).
-// Fully closing it needs a pinned-lookup dispatcher; for a public logo tool
-// with no internal services this best-effort guard is the right tradeoff.
-async function isPublicHost(hostname: string): Promise<boolean> {
+// Known residual risk (accepted): fetch() runs its own DNS resolution after this
+// check, so an attacker-controlled DNS server could answer the check with a
+// public IP and the connect with a private one (resolve/connect TOCTOU). Fully
+// closing it needs a pinned-lookup dispatcher; for a public logo tool with no
+// internal services this best-effort guard is the right tradeoff.
+type HostVerdict = "ok" | "private" | "unresolved";
+async function classifyHost(hostname: string): Promise<HostVerdict> {
   const h = hostname.toLowerCase().replace(/^\[|\]$/g, "");
-  if (isBlockedHost(h)) return false;
+  if (isBlockedHost(h)) return "private";
   if (/^\d{1,3}(\.\d{1,3}){3}$/.test(h) || h.includes(":")) {
-    return !isBlockedIp(h);
+    return isBlockedIp(h) ? "private" : "ok";
   }
   try {
     const addrs = await dns.lookup(h, { all: true });
-    return addrs.length > 0 && addrs.every((a) => !isBlockedIp(a.address));
+    if (addrs.length === 0) return "unresolved";
+    return addrs.some((a) => isBlockedIp(a.address)) ? "private" : "ok";
   } catch {
-    return false;
+    return "unresolved";
   }
 }
 
@@ -124,7 +184,10 @@ function normalizeUrl(input: string): URL | null {
 async function safeFetch(start: string, ms: number, asText: boolean) {
   let url = start;
   for (let hop = 0; hop < 4; hop++) {
-    if (!(await isPublicHost(new URL(url).hostname))) {
+    // Only a POSITIVE private/internal resolution blocks. "unresolved" falls
+    // through to fetch, which fails safely (a host we can't resolve can't reach
+    // an internal service) with a clearer "couldn't reach" message.
+    if ((await classifyHost(new URL(url).hostname)) === "private") {
       throw new Error("blocked host");
     }
     const ctrl = new AbortController();
@@ -202,7 +265,10 @@ function metaContent(html: string, keys: string[]): string | null {
 }
 
 // All <link> hrefs whose rel matches, with any sizes hint (for picking biggest).
-function linkIcons(html: string, relIncludes: string): { href: string; size: number }[] {
+function linkIcons(
+  html: string,
+  relIncludes: string,
+): { href: string; size: number }[] {
   const tags = html.match(/<link\b[^>]*>/gi) || [];
   const out: { href: string; size: number }[] = [];
   for (const t of tags) {
@@ -232,7 +298,11 @@ function validHex(c: string | null): string | null {
   const m = c.trim().match(/^#?([0-9a-fA-F]{6}|[0-9a-fA-F]{3})$/);
   if (!m) return null;
   let h = m[1];
-  if (h.length === 3) h = h.split("").map((x) => x + x).join("");
+  if (h.length === 3)
+    h = h
+      .split("")
+      .map((x) => x + x)
+      .join("");
   return `#${h.toUpperCase()}`;
 }
 
@@ -301,8 +371,11 @@ export async function POST(req: Request) {
   // / declared favicon / /favicon.ico) over the social og:image, which is often
   // a marketing banner whose colors aren't the brand color. og:image is the last
   // resort so we still get *something* for sites with no discoverable favicon.
-  const apple = linkIcons(html, "apple-touch-icon").sort((a, b) => b.size - a.size)[0]?.href;
-  const favicon = linkIcons(html, "icon").sort((a, b) => b.size - a.size)[0]?.href;
+  const apple = linkIcons(html, "apple-touch-icon").sort(
+    (a, b) => b.size - a.size,
+  )[0]?.href;
+  const favicon = linkIcons(html, "icon").sort((a, b) => b.size - a.size)[0]
+    ?.href;
   const ogImage = metaContent(html, ["og:image", "og:image:url"]);
   const candidates = [apple, favicon, "/favicon.ico", ogImage].filter(
     Boolean,
@@ -323,7 +396,9 @@ export async function POST(req: Request) {
       if (isBlockedHost(u.hostname)) continue;
       const imgRes = await safeFetch(abs, IMG_FETCH_TIMEOUT, false);
       if (!imgRes.ok) continue;
-      const ct = (imgRes.headers.get("content-type") || "").split(";")[0].trim();
+      const ct = (imgRes.headers.get("content-type") || "")
+        .split(";")[0]
+        .trim();
       if (!ct.startsWith("image/")) continue;
       const bytes = await readCapped(imgRes, MAX_IMG_BYTES);
       if (bytes.length < 64) continue; // empty / 1px tracker
