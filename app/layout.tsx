@@ -21,19 +21,42 @@ const satoshi = localFont({
 const title = "LogoCreator: Generate a logo in seconds";
 const description =
   "Create a clean, professional logo for your brand in seconds. Free and open source.";
-const url = "https://www.logo-creator.io/";
-const ogimage = "https://www.logo-creator.io/og-image.png";
+const canonicalUrl = "https://www.logo-creator.io/";
 const sitename = "LogoCreator";
 
+// Resolve the OG/Twitter card image against the origin actually serving THIS
+// build, not a hardcoded canonical domain. Pointing the card at
+// logo-creator.io from a preview or fork deploy tells scrapers to fetch it from
+// the live production site, which still hosts the old pre-redesign image — that
+// is exactly why a stale OG kept unfurling on shared preview links. In
+// production we use the project's stable production domain; on previews, the
+// deploy's own URL; locally, the canonical domain (nothing scrapes localhost).
+const deployOrigin =
+  process.env.VERCEL_ENV === "production" &&
+  process.env.VERCEL_PROJECT_PRODUCTION_URL
+    ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`
+    : process.env.VERCEL_URL
+      ? `https://${process.env.VERCEL_URL}`
+      : canonicalUrl;
+
+// The ?v= tag busts the social scrapers' image cache. Slack/X/Facebook key
+// their stored thumbnail on the exact image URL, so an unchanged og-image.png
+// filename would keep serving the card they scraped before the redesign. Bump
+// this whenever the card art changes.
+const ogimage = new URL("/og-image.png?v=2", deployOrigin).toString();
+
 export const metadata: Metadata = {
-  metadataBase: new URL(url),
+  metadataBase: new URL(deployOrigin),
   title,
   description,
+  // Canonical stays the production domain for SEO, even when the card image is
+  // served from a preview/fork origin.
+  alternates: { canonical: canonicalUrl },
   openGraph: {
-    images: [ogimage],
+    images: [{ url: ogimage, width: 1200, height: 630, alt: title }],
     title,
     description,
-    url: url,
+    url: canonicalUrl,
     siteName: sitename,
     locale: "en_US",
     type: "website",
