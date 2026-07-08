@@ -81,7 +81,9 @@ export default function Logo({
   wordmark?: boolean;
 }) {
   return (
-    <span className={cn("inline-flex items-center gap-2.5", className)}>
+    <span
+      className={cn("inline-flex select-none items-center gap-2.5", className)}
+    >
       <LogoMark className={cn("size-7 shrink-0", markClassName)} />
       {wordmark && (
         <span className="text-[1.0625rem] font-bold leading-none tracking-[-0.02em] text-foreground">

@@ -9,7 +9,7 @@ export default function TogetherCredit({ className }: { className?: string }) {
       target="_blank"
       rel="noreferrer"
       aria-label="Powered by Together AI"
-      className={cn("inline-flex items-center gap-2", className)}
+      className={cn("inline-flex select-none items-center gap-2", className)}
     >
       <span className="text-xs text-muted-foreground">Powered by</span>
       <img
