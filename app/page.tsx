@@ -1373,12 +1373,13 @@ export default function Page() {
           <div className="sticky bottom-0 z-30 space-y-2.5 border-t border-border bg-background/95 px-5 pb-[max(0.875rem,env(safe-area-inset-bottom))] pt-3 backdrop-blur-sm md:static md:z-auto md:space-y-3 md:bg-transparent md:pb-4 md:pt-4 md:backdrop-blur-none">
             <div className="flex items-center justify-between gap-3">
               <span className="label-eyebrow">Variations</span>
-              <div className="w-36 md:w-[7rem]">
+              <div className="w-28 md:w-[7rem]">
                 <Segmented
                   options={["1", "2", "4"]}
                   value={String(variationCount)}
                   onChange={(v) => setVariationCount(Number(v))}
                   ariaLabel="Number of variations"
+                  compact
                 />
               </div>
             </div>

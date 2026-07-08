@@ -25,7 +25,9 @@ export default function StylePicker({
       onValueChange={onChange}
       // Phones get a swipeable single row (a tall 3x3 grid pushed the generate
       // button and the gallery far below the fold); md+ keeps the full grid.
-      className="scroll-fade-x -mx-5 -mt-1 flex snap-x gap-2.5 overflow-x-auto overscroll-x-contain px-5 pb-1.5 pt-1 [-ms-overflow-style:none] [scrollbar-width:none] md:mx-0 md:mt-0 md:grid md:grid-cols-3 md:overflow-visible md:px-0 md:pb-0 md:pt-0 [&::-webkit-scrollbar]:hidden"
+      // scroll-pl-5 keeps the first tile's snap point at the padded content
+      // edge; without it the initial snap drags the row flush to the screen.
+      className="scroll-fade-x -mx-5 -mt-1 flex snap-x scroll-pl-5 gap-2.5 overflow-x-auto overscroll-x-contain px-5 pb-1.5 pt-1 [-ms-overflow-style:none] [scrollbar-width:none] md:mx-0 md:mt-0 md:grid md:grid-cols-3 md:overflow-visible md:px-0 md:pb-0 md:pt-0 [&::-webkit-scrollbar]:hidden"
     >
       {styles.map((style) => (
         <StyleTile key={style.name} style={style} />
