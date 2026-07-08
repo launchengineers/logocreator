@@ -20,6 +20,7 @@ import {
   DialogTitle,
 } from "@/app/components/ui/dialog";
 import { Button } from "@/app/components/ui/button";
+import { Tip } from "@/app/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
 import { downloadBlob, slugify } from "@/app/lib/brand-kit";
@@ -262,105 +263,119 @@ function HistoryTile({
         className="size-full object-contain"
       />
       {/* Favorite star: persistent when favorited, else on hover/focus */}
-      <button
-        type="button"
-        onClick={(e) => {
-          e.stopPropagation();
-          onToggleFavorite(gen);
-        }}
-        aria-label={gen.favorite ? "Remove from favorites" : "Add to favorites"}
-        aria-pressed={!!gen.favorite}
-        title={gen.favorite ? "Favorited" : "Favorite"}
-        className={cn(
-          "absolute left-2 top-2 z-20 flex size-6 items-center justify-center rounded-full bg-black/45 outline-none backdrop-blur-sm transition-all focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-white/60 [@media(hover:none)]:size-8",
-          gen.favorite
-            ? "text-amber-300 opacity-100"
-            : "text-white/85 opacity-0 hover:text-white group-focus-within:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100",
-        )}
+      <Tip
+        label={gen.favorite ? "Remove from favorites" : "Add to favorites"}
+        side="bottom"
       >
-        <Star className={cn("size-3", gen.favorite && "fill-amber-300")} />
-      </button>
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggleFavorite(gen);
+          }}
+          aria-label={
+            gen.favorite ? "Remove from favorites" : "Add to favorites"
+          }
+          aria-pressed={!!gen.favorite}
+          className={cn(
+            "absolute left-2 top-2 z-20 flex size-6 items-center justify-center rounded-full bg-black/45 outline-none backdrop-blur-sm transition-all focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-white/60 [@media(hover:none)]:size-8",
+            gen.favorite
+              ? "text-amber-300 opacity-100"
+              : "text-white/85 opacity-0 hover:text-white group-focus-within:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100",
+          )}
+        >
+          <Star className={cn("size-3", gen.favorite && "fill-amber-300")} />
+        </button>
+      </Tip>
       <div className="pointer-events-none absolute inset-0 flex flex-col justify-between bg-gradient-to-t from-black/65 via-black/0 to-black/10 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100">
         <div className="pointer-events-auto flex items-start justify-between gap-1 p-2 pl-9">
           <span className="truncate rounded bg-black/45 px-1.5 py-0.5 text-[0.65rem] font-medium text-white backdrop-blur-sm">
             {displayName}
           </span>
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              if (confirmDel) onDelete(gen.id);
-              else setConfirmDel(true);
-            }}
-            onMouseLeave={() => setConfirmDel(false)}
-            onBlur={() => setConfirmDel(false)}
-            aria-label={confirmDel ? "Confirm delete" : "Delete"}
-            title={confirmDel ? "Click again to delete" : "Delete"}
-            className={cn(
-              "flex size-6 shrink-0 items-center justify-center rounded-full text-white/90 backdrop-blur-sm transition-colors [@media(hover:none)]:size-8",
-              confirmDel ? "bg-destructive" : "bg-black/45 hover:bg-black/65",
-            )}
+          <Tip
+            label={confirmDel ? "Click again to delete" : "Delete"}
+            side="bottom"
           >
-            <Trash2 className="size-3" />
-          </button>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                if (confirmDel) onDelete(gen.id);
+                else setConfirmDel(true);
+              }}
+              onMouseLeave={() => setConfirmDel(false)}
+              onBlur={() => setConfirmDel(false)}
+              aria-label={confirmDel ? "Confirm delete" : "Delete"}
+              className={cn(
+                "flex size-6 shrink-0 items-center justify-center rounded-full text-white/90 backdrop-blur-sm transition-colors [@media(hover:none)]:size-8",
+                confirmDel ? "bg-destructive" : "bg-black/45 hover:bg-black/65",
+              )}
+            >
+              <Trash2 className="size-3" />
+            </button>
+          </Tip>
         </div>
 
         <div className="pointer-events-auto flex items-center justify-center gap-1 p-2">
-          <a
-            href={gen.image}
-            download={`${slugify(displayName)}.png`}
-            onClick={(e) => e.stopPropagation()}
-            title="Download PNG"
-            aria-label="Download PNG"
-            className={pill}
-          >
-            <Download className="size-3.5" />
-          </a>
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              handleSvg();
-            }}
-            disabled={svgBusy}
-            title="Download SVG (auto-traced)"
-            aria-label="Download SVG"
-            className={pill}
-          >
-            {svgBusy ? (
-              <Loader2 className="size-3.5 animate-spin" />
-            ) : (
-              <FileCode2 className="size-3.5" />
-            )}
-          </button>
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onCreateBrandKit(gen);
-            }}
-            title={hasKit ? "Open brand kit" : "Create brand kit"}
-            aria-label={hasKit ? "Open brand kit" : "Create brand kit"}
-            className={cn(pill, hasKit && "text-primary")}
-          >
-            {hasKit ? (
-              <Package className="size-3.5" />
-            ) : (
-              <Sparkles className="size-3.5" />
-            )}
-          </button>
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onLoad(gen.params);
-            }}
-            title="Load into creator"
-            aria-label="Load into creator"
-            className={pill}
-          >
-            <FolderOpen className="size-3.5" />
-          </button>
+          <Tip label="Download PNG">
+            <a
+              href={gen.image}
+              download={`${slugify(displayName)}.png`}
+              onClick={(e) => e.stopPropagation()}
+              aria-label="Download PNG"
+              className={pill}
+            >
+              <Download className="size-3.5" />
+            </a>
+          </Tip>
+          <Tip label="Download SVG (auto-traced)">
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleSvg();
+              }}
+              disabled={svgBusy}
+              aria-label="Download SVG"
+              className={pill}
+            >
+              {svgBusy ? (
+                <Loader2 className="size-3.5 animate-spin" />
+              ) : (
+                <FileCode2 className="size-3.5" />
+              )}
+            </button>
+          </Tip>
+          <Tip label={hasKit ? "Open brand kit" : "Create brand kit"}>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onCreateBrandKit(gen);
+              }}
+              aria-label={hasKit ? "Open brand kit" : "Create brand kit"}
+              className={cn(pill, hasKit && "text-primary")}
+            >
+              {hasKit ? (
+                <Package className="size-3.5" />
+              ) : (
+                <Sparkles className="size-3.5" />
+              )}
+            </button>
+          </Tip>
+          <Tip label="Load into creator">
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onLoad(gen.params);
+              }}
+              aria-label="Load into creator"
+              className={pill}
+            >
+              <FolderOpen className="size-3.5" />
+            </button>
+          </Tip>
         </div>
       </div>
     </div>
