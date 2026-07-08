@@ -224,6 +224,7 @@ export default function GenerationModal({
   const [editText, setEditText] = useState("");
   const [nameDraft, setNameDraft] = useState("");
   const [imgFailed, setImgFailed] = useState(false);
+  const contentRef = useRef<HTMLDivElement>(null);
 
   // A new logo (or a Redo swap) gets a fresh chance to load.
   useEffect(() => {
@@ -286,7 +287,20 @@ export default function GenerationModal({
   return (
     <Dialog open={!!gen} onOpenChange={(o) => !o && onClose()}>
       {gen && (
-        <DialogContent className="max-w-[min(96vw,68rem)] gap-0 overflow-hidden rounded-2xl border-border p-0 sm:rounded-2xl">
+        <DialogContent
+          ref={contentRef}
+          // Radix Dialog autofocuses the first focusable child on open; here
+          // that's the favorite star, and Radix Tooltip opens on focus, so the
+          // "Remove from favorites" tooltip popped up unprompted every time the
+          // modal opened on a favorited logo. Land focus on the dialog itself
+          // instead: still inside the dialog for keyboard users, but on no
+          // control, so no tooltip fires.
+          onOpenAutoFocus={(e) => {
+            e.preventDefault();
+            contentRef.current?.focus();
+          }}
+          className="max-w-[min(96vw,68rem)] gap-0 overflow-hidden rounded-2xl border-border p-0 sm:rounded-2xl"
+        >
           <DialogTitle className="sr-only">
             {gen.name || gen.companyName || "Generated logo"}
           </DialogTitle>

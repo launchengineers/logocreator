@@ -250,13 +250,25 @@ export default function Gallery({
     );
   }
 
+  // Favorites pin to the front of the gallery (newest-first within each group),
+  // so a starred logo stays easy to find as more generations stack up. The sort
+  // is stable, so it only lifts favorites above non-favorites and otherwise
+  // keeps the incoming newest-first order. The layout animation on each cell
+  // makes the star visibly float the logo to the top.
+  const ordered =
+    generations.some((g) => g.favorite) && generations.some((g) => !g.favorite)
+      ? [...generations].sort(
+          (a, b) => Number(!!b.favorite) - Number(!!a.favorite),
+        )
+      : generations;
+
   return (
     <div className="grid grid-cols-2 gap-3.5 p-5 sm:gap-4 sm:p-6 lg:grid-cols-3">
       <AnimatePresence initial={false}>
         {Array.from({ length: pendingCount }, (_, i) => (
           <SkeletonCell key={`skeleton-${i}`} />
         ))}
-        {generations.map((gen, i) => (
+        {ordered.map((gen, i) => (
           <GenerationCell
             key={gen.id}
             gen={gen}
