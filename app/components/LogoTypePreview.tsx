@@ -25,8 +25,22 @@ const PREVIEWS: Record<string, Preview> = {
       <>
         <rect x="49" y="8" width="22" height="22" rx="6.5" fill={PRIMARY} />
         <circle cx="60" cy="19" r="4.3" fill={BG} />
-        <rect x="33" y="40" width="54" height="8.5" rx="4.25" fill={ink(0.82)} />
-        <rect x="44" y="54" width="32" height="4.5" rx="2.25" fill={ink(0.28)} />
+        <rect
+          x="33"
+          y="40"
+          width="54"
+          height="8.5"
+          rx="4.25"
+          fill={ink(0.82)}
+        />
+        <rect
+          x="44"
+          y="54"
+          width="32"
+          height="4.5"
+          rx="2.25"
+          fill={ink(0.28)}
+        />
       </>
     ),
   },
@@ -131,7 +145,6 @@ const PREVIEWS: Record<string, Preview> = {
           strokeLinecap="round"
         />
         <circle cx="79" cy="48" r="8.5" fill={ink(0.8)} />
-        <circle cx="44" cy="24" r="5.5" fill={PRIMARY} />
       </>
     ),
   },
