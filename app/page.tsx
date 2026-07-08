@@ -18,6 +18,7 @@ import { Button } from "@/app/components/ui/button";
 import { Textarea } from "@/app/components/ui/textarea";
 import Logo from "./components/Logo";
 import ThemeToggle from "./components/ThemeToggle";
+import { AuthControls, useAuth } from "./components/AuthProvider";
 import ApiKeyDialog from "./components/ApiKeyDialog";
 import StylePicker, { SURPRISE_STYLE } from "./components/StylePicker";
 import ColorSwatches, { AUTO_COLOR } from "./components/ColorSwatches";
@@ -270,6 +271,11 @@ export default function Page() {
     palette?: string[]; // detected brand colors the user can re-pick from
   } | null>(null);
 
+  // Optional Clerk auth: when configured, signing in is the gate for the free
+  // credits (server-tracked); without keys this reports disabled and the
+  // account-less flow below is unchanged.
+  const auth = useAuth();
+
   // Account-less state
   const [userAPIKey, setUserAPIKey] = useState("");
   const [credits, setCredits] = useState(FREE_CREDITS);
@@ -392,6 +398,16 @@ export default function Page() {
 
   const hasOwnKey = userAPIKey.trim().length > 0;
 
+  // With Clerk configured, free credits are gated behind sign-in and the
+  // server tracks each user's remaining count (written to their Clerk
+  // metadata after every run); the local counter only rules the account-less
+  // mode. Signed out with auth on = no free credits until you sign in.
+  const effectiveCredits = auth.enabled
+    ? auth.isSignedIn
+      ? (auth.remaining ?? FREE_CREDITS)
+      : 0
+    : credits;
+
   // Adjust credits by a delta using a functional update, so overlapping flows
   // (e.g. an edit fired while a batch is still generating) can never clobber
   // each other's charge/refund by reading a stale `credits` from a closure.
@@ -494,10 +510,12 @@ export default function Page() {
         };
         setGenerations((prev) => [next, ...prev]);
         // Charge the run's single free credit the moment its FIRST logo lands,
-        // not up front: closing the tab mid-batch then costs nothing.
+        // not up front: closing the tab mid-batch then costs nothing. With
+        // auth on, the server is the ledger (refreshed after the run), so the
+        // local counter stays untouched.
         if (!hasOwnKey && !chargedRef.current) {
           chargedRef.current = true;
-          adjustCredits(-1);
+          if (!auth.enabled) adjustCredits(-1);
         }
         const savePromise = saveLogo({
           id,
@@ -529,8 +547,11 @@ export default function Page() {
     n: number,
   ): Promise<{ ok: boolean; error?: string; gen?: Generation }[] | undefined> {
     if (runningRef.current) return;
-    if (!hasOwnKey && credits <= 0) {
-      setApiKeyOpen(true);
+    if (!hasOwnKey && effectiveCredits <= 0) {
+      // Signed out with auth configured → the free credits live behind
+      // sign-in, so lead there; otherwise the answer is a key.
+      if (auth.enabled && !auth.isSignedIn) setWelcomeOpen(true);
+      else setApiKeyOpen(true);
       return;
     }
     runningRef.current = true;
@@ -598,6 +619,9 @@ export default function Page() {
           description: "Some variations didn't come through. Vary for more.",
         });
       }
+      // With auth on, the server just wrote the fresh remaining-credits count
+      // to the user record; pull it so the caption stays truthful.
+      if (auth.enabled && auth.isSignedIn && !hasOwnKey) void auth.refresh();
       return results;
     } finally {
       runningRef.current = false;
@@ -626,8 +650,9 @@ export default function Page() {
   ): Promise<boolean> {
     const text = instruction.trim();
     if (editingRef.current || !text) return false;
-    if (!hasOwnKey && credits <= 0) {
-      setApiKeyOpen(true);
+    if (!hasOwnKey && effectiveCredits <= 0) {
+      if (auth.enabled && !auth.isSignedIn) setWelcomeOpen(true);
+      else setApiKeyOpen(true);
       return false;
     }
     editingRef.current = true;
@@ -671,7 +696,9 @@ export default function Page() {
         blob,
       }).catch(onPersistError);
       savePromises.current.set(id, savePromise);
-      if (!hasOwnKey) adjustCredits(-1);
+      // Account-less mode charges the local counter; with auth on, edits are
+      // covered by the server's own per-user rate limit instead.
+      if (!hasOwnKey && !auth.enabled) adjustCredits(-1);
       setActiveGen(next); // keep the lightbox on the new result to iterate
       return true;
     } catch (err) {
@@ -1063,13 +1090,32 @@ export default function Page() {
     setWelcomeOpen(false);
   }
 
+  // The Clerk sign-in modal opens OVER the welcome modal; once sign-in lands,
+  // finish the hand-off: close the welcome and confirm the credits are live.
+  const wasSignedInRef = useRef(false);
+  useEffect(() => {
+    if (auth.isSignedIn && !wasSignedInRef.current && welcomeOpen) {
+      dismissWelcome();
+      const n = auth.remaining ?? FREE_CREDITS;
+      toast({
+        title: "You're in!",
+        description: `${n} free ${n === 1 ? "credit" : "credits"} ready. Make something great.`,
+      });
+    }
+    wasSignedInRef.current = auth.isSignedIn;
+    // dismissWelcome is stable in practice (setState + localStorage).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [auth.isSignedIn, auth.remaining, welcomeOpen]);
+
   const creditCaption = hasOwnKey
     ? variationCount > 1
       ? `Using your key · ~${formatUsd(pricePerLogo(logoType) * variationCount)} / set`
       : `Using your key · ~${formatUsd(pricePerLogo(logoType))} / logo`
-    : credits > 0
-      ? `${credits} free ${credits === 1 ? "credit" : "credits"} left`
-      : "Out of free credits";
+    : auth.enabled && !auth.isSignedIn
+      ? `Sign in for ${FREE_CREDITS} free credits`
+      : effectiveCredits > 0
+        ? `${effectiveCredits} free ${effectiveCredits === 1 ? "credit" : "credits"} left`
+        : "Out of free credits";
 
   return (
     <MotionConfig reducedMotion="user">
@@ -1107,9 +1153,10 @@ export default function Page() {
               }}
               apiKey={userAPIKey}
               onSave={handleApiKeySave}
-              credits={credits}
+              credits={effectiveCredits}
             />
             <ThemeToggle />
+            <AuthControls />
           </div>
         </header>
 
@@ -1408,8 +1455,10 @@ export default function Page() {
                 )}
                 {isGenerating
                   ? "Generating…"
-                  : !hasOwnKey && credits <= 0
-                    ? "Add a key to generate"
+                  : !hasOwnKey && effectiveCredits <= 0
+                    ? auth.enabled && !auth.isSignedIn
+                      ? "Sign in to generate"
+                      : "Add a key to generate"
                     : variationCount > 1
                       ? `Generate ${variationCount} logos`
                       : "Generate logo"}
@@ -1419,8 +1468,11 @@ export default function Page() {
             <p className="text-center text-xs text-muted-foreground">
               <span
                 className={cn(
+                  // Amber = genuinely out of credits. "Sign in first" is an
+                  // invitation, not a warning, so it keeps the quiet tone.
                   !hasOwnKey &&
-                    credits <= 0 &&
+                    effectiveCredits <= 0 &&
+                    !(auth.enabled && !auth.isSignedIn) &&
                     "text-amber-700 dark:text-amber-400",
                 )}
               >
@@ -1511,7 +1563,7 @@ export default function Page() {
         editing={isEditing}
         busy={isGenerating}
         hasOwnKey={hasOwnKey}
-        credits={credits}
+        credits={effectiveCredits}
         hasKit={!!activeGen && brandKit.savedKitIds.has(activeGen.id)}
         onClose={() => setActiveGen(null)}
         onRegenerate={redoInModal}
@@ -1580,6 +1632,10 @@ export default function Page() {
         apiKey={userAPIKey}
         onSave={handleApiKeySave}
         onStart={dismissWelcome}
+        freeCredits={FREE_CREDITS}
+        needsSignIn={auth.enabled && !auth.isSignedIn}
+        signedIn={auth.enabled && auth.isSignedIn}
+        onSignIn={auth.openSignIn}
       />
     </MotionConfig>
   );

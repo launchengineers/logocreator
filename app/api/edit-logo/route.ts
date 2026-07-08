@@ -1,4 +1,5 @@
 import Together from "together-ai";
+import { currentUser } from "@clerk/nextjs/server";
 import { ipAddress } from "@vercel/functions";
 import { Ratelimit } from "@upstash/ratelimit";
 import { Redis } from "@upstash/redis";
@@ -42,9 +43,21 @@ export async function POST(req: Request) {
     });
   }
 
+  // With Clerk configured, keyless (server-key) edits require a signed-in
+  // user, the same friction as generations; BYOK works signed out.
+  const clerkEnabled = !!process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
+  if (clerkEnabled && !data.userAPIKey) {
+    const user = await currentUser();
+    if (!user) {
+      return new Response(
+        "Sign in to edit with free credits, or add your own Together AI key.",
+        { status: 401, headers: { "Content-Type": "text/plain" } },
+      );
+    }
+  }
+
   // In production, don't spend the owner's server key from a fully unprotected
   // deploy (no BYOK, no Clerk, no Upstash limiter). Allowed in local dev.
-  const clerkEnabled = !!process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
   const hasLimiter = !!process.env.UPSTASH_REDIS_REST_URL;
   if (
     process.env.NODE_ENV === "production" &&

@@ -57,10 +57,6 @@ export async function POST(req: Request) {
   const clerkEnabled = !!process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
   const user = clerkEnabled ? await currentUser() : null;
 
-  if (clerkEnabled && !user) {
-    return new Response("", { status: 404 });
-  }
-
   const parsed = z
     .object({
       userAPIKey: z.string().max(200).optional(),
@@ -82,6 +78,16 @@ export async function POST(req: Request) {
     });
   }
   const data = parsed.data;
+
+  // With Clerk configured, the free (server-key) credits sit behind sign-in:
+  // that friction keeps an anonymous loop from draining a paid image model.
+  // Bringing your own key still works signed out; you spend your own money.
+  if (clerkEnabled && !user && !data.userAPIKey) {
+    return new Response(
+      "Sign in to use your free credits, or add your own Together AI key.",
+      { status: 401, headers: { "Content-Type": "text/plain" } },
+    );
+  }
 
   // In production, never spend the owner's server key from a fully unprotected
   // deploy: with no BYOK key, no Clerk identity, and no Upstash limiter, an

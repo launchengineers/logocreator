@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@clerk/nextjs": "^7.4.3",
+    "@clerk/themes": "^2.4.57",
     "@radix-ui/react-dialog": "^1.1.16",
     "@radix-ui/react-radio-group": "^1.4.0",
     "@radix-ui/react-select": "^2.3.0",

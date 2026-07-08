@@ -1,10 +1,10 @@
 import type { Metadata, Viewport } from "next";
 import localFont from "next/font/local";
 import "./globals.css";
-import { ClerkProvider } from "@clerk/nextjs";
 import { Toaster } from "@/app/components/ui/toaster";
 import { TooltipProvider } from "@/app/components/ui/tooltip";
 import { ThemeProvider } from "@/app/components/ThemeProvider";
+import AuthProvider from "@/app/components/AuthProvider";
 
 const satoshi = localFont({
   src: [
@@ -85,9 +85,7 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const clerkEnabled = !!process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
-
-  const content = (
+  return (
     <html
       lang="en"
       className={`${satoshi.variable} h-full`}
@@ -100,14 +98,16 @@ export default function RootLayout({
           enableSystem={false}
           disableTransitionOnChange
         >
-          <TooltipProvider delayDuration={200} skipDelayDuration={300}>
-            {children}
-          </TooltipProvider>
+          {/* AuthProvider sits inside ThemeProvider so Clerk's modals follow
+              the app theme; it renders children untouched without Clerk keys. */}
+          <AuthProvider>
+            <TooltipProvider delayDuration={200} skipDelayDuration={300}>
+              {children}
+            </TooltipProvider>
+          </AuthProvider>
           <Toaster />
         </ThemeProvider>
       </body>
     </html>
   );
-
-  return clerkEnabled ? <ClerkProvider>{content}</ClerkProvider> : content;
 }
