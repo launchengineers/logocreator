@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils";
 export default function TogetherCredit({ className }: { className?: string }) {
   return (
     <a
-      href="https://togetherai.link/"
+      href="https://togetherai.link/?utm_source=logocreator&utm_medium=referral&utm_campaign=example-app"
       target="_blank"
       rel="noreferrer"
       aria-label="Powered by Together AI"

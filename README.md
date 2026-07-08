@@ -9,17 +9,16 @@
 
 ## Tech stack
 
-- [FLUX.2 pro](https://togetherai.link/flux-playground) on [Together AI](https://togetherai.link/) for generation, with FLUX.1 Kontext for edits
+- [FLUX.2 pro](https://togetherai.link/?utm_source=logocreator&utm_medium=referral&utm_campaign=example-app) on [Together AI](https://togetherai.link/?utm_source=logocreator&utm_medium=referral&utm_campaign=example-app) for generation, with FLUX.1 Kontext for edits
 - [Next.js](https://nextjs.org/) (App Router) with TypeScript for the app framework
 - [Radix](https://www.radix-ui.com/) primitives and [Tailwind](https://tailwindcss.com/) for the UI
 - [Upstash Redis](https://upstash.com/) for optional rate limiting and [Clerk](https://clerk.com/) for optional auth
-- [Helicone](https://helicone.ai/) for optional observability
 
 ## Cloning and running
 
 1. Clone the repo: `git clone https://github.com/Nutlope/logocreator`
 2. Create a `.env.local` file and add your [Together AI API key](https://api.together.xyz/settings/api-keys): `TOGETHER_API_KEY=`
-3. Run `npm install` and `npm run dev` to install dependencies and run locally.
+3. Run `pnpm install` and `pnpm dev` to install dependencies and run locally.
 
 Clerk and Upstash are optional: without them, the app runs account-less with a bring-your-own-key flow.
 

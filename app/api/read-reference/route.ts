@@ -106,16 +106,11 @@ export async function POST(req: Request) {
     });
   }
 
-  const baseURL = process.env.HELICONE_API_KEY
-    ? "https://together.helicone.ai/v1"
-    : "https://api.together.xyz/v1";
+  const baseURL = "https://api.together.xyz/v1";
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     Authorization: `Bearer ${apiKey}`,
   };
-  if (process.env.HELICONE_API_KEY) {
-    headers["Helicone-Auth"] = `Bearer ${process.env.HELICONE_API_KEY}`;
-  }
 
   try {
     const res = await fetch(`${baseURL}/chat/completions`, {
