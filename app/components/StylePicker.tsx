@@ -23,7 +23,9 @@ export default function StylePicker({
     <RadioGroup.Root
       value={value}
       onValueChange={onChange}
-      className="grid grid-cols-3 gap-2.5"
+      // Phones get a swipeable single row (a tall 3x3 grid pushed the generate
+      // button and the gallery far below the fold); md+ keeps the full grid.
+      className="scroll-fade-x -mx-5 -mt-1 flex snap-x gap-2.5 overflow-x-auto overscroll-x-contain px-5 pb-1.5 pt-1 [-ms-overflow-style:none] [scrollbar-width:none] md:mx-0 md:mt-0 md:grid md:grid-cols-3 md:overflow-visible md:px-0 md:pb-0 md:pt-0 [&::-webkit-scrollbar]:hidden"
     >
       {styles.map((style) => (
         <StyleTile key={style.name} style={style} />
@@ -41,7 +43,7 @@ function StyleTile({ style }: { style: Style }) {
       value={style.name}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
-      className="group rounded-xl outline-none"
+      className="group w-24 shrink-0 snap-start rounded-xl outline-none md:w-auto"
     >
       <span className="flex flex-col items-center gap-2.5 rounded-2xl border border-border bg-background px-2 py-3.5 transition-all duration-150 group-hover:border-foreground/25 group-focus-visible:ring-2 group-focus-visible:ring-ring group-focus-visible:ring-offset-2 group-focus-visible:ring-offset-card group-data-[state=checked]:border-primary group-data-[state=checked]:ring-2 group-data-[state=checked]:ring-primary/20">
         <CyclingThumb frames={style.frames} active={hovered} />
@@ -57,7 +59,7 @@ function SurpriseTile() {
   return (
     <RadioGroup.Item
       value={SURPRISE_STYLE}
-      className="group rounded-xl outline-none"
+      className="group w-24 shrink-0 snap-start rounded-xl outline-none md:w-auto"
     >
       <span className="flex flex-col items-center gap-2.5 rounded-2xl border border-dashed border-border bg-background px-2 py-3.5 transition-all duration-150 group-hover:border-foreground/30 group-focus-visible:ring-2 group-focus-visible:ring-ring group-focus-visible:ring-offset-2 group-focus-visible:ring-offset-card group-data-[state=checked]:border-solid group-data-[state=checked]:border-primary group-data-[state=checked]:ring-2 group-data-[state=checked]:ring-primary/20">
         <span className="flex size-[3.25rem] items-center justify-center">

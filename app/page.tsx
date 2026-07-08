@@ -136,8 +136,7 @@ function newId(): string {
 function isQuotaError(e: unknown): boolean {
   return (
     e instanceof DOMException &&
-    (e.name === "QuotaExceededError" ||
-      e.name === "NS_ERROR_DOM_QUOTA_REACHED")
+    (e.name === "QuotaExceededError" || e.name === "NS_ERROR_DOM_QUOTA_REACHED")
   );
 }
 
@@ -206,7 +205,11 @@ const detailLevels = ["Minimal", "Balanced", "Detailed"] as const;
 // WCAG relative luminance + contrast ratio, to warn on hard-to-see color pairs.
 function luminance(hex: string): number {
   let h = hex.replace("#", "");
-  if (h.length === 3) h = h.split("").map((c) => c + c).join("");
+  if (h.length === 3)
+    h = h
+      .split("")
+      .map((c) => c + c)
+      .join("");
   if (h.length < 6) return 1; // not a color: skip the contrast warning
   const channel = (i: number) => {
     const c = parseInt(h.slice(i, i + 2), 16) / 255;
@@ -223,7 +226,12 @@ function contrastRatio(a: string, b: string): number {
 
 function XLogo({ className }: { className?: string }) {
   return (
-    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" className={className}>
+    <svg
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      aria-hidden="true"
+      className={className}
+    >
       <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24h-6.66l-5.214-6.817-5.966 6.817H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231 5.45-6.231Zm-1.161 17.52h1.833L7.084 4.126H5.117L17.083 19.77Z" />
     </svg>
   );
@@ -308,6 +316,9 @@ export default function Page() {
   const chargedRef = useRef(false);
   // Warn once if a non-quota persistence write fails (so it isn't silent).
   const persistWarnedRef = useRef(false);
+  // The gallery pane, so a phone-layout generation can scroll the results
+  // into view (they'd otherwise render invisibly below the controls).
+  const galleryRef = useRef<HTMLElement | null>(null);
   // Per-logo save promises, so a fast favorite/rename can wait for the record
   // to exist before patching it.
   const savePromises = useRef<Map<string, Promise<unknown>>>(new Map());
@@ -503,7 +514,10 @@ export default function Page() {
         : genErrorMessage(res.status);
       return { ok: false, error: text };
     } catch {
-      return { ok: false, error: "Network error. Check your connection and try again." };
+      return {
+        ok: false,
+        error: "Network error. Check your connection and try again.",
+      };
     }
   }
 
@@ -524,6 +538,23 @@ export default function Page() {
     try {
       setPendingCount(n);
       setLiveMessage(n > 1 ? `Generating ${n} logos…` : "Generating a logo…");
+
+      // On the single-column phone layout the gallery sits below the controls,
+      // so a generation kicked off from the form would render off-screen with
+      // no visible feedback. Bring the skeletons into view. Desktop's two-pane
+      // layout always shows the gallery; a lightbox Redo stays in the modal.
+      if (
+        !activeGen &&
+        typeof window !== "undefined" &&
+        window.matchMedia("(max-width: 767px)").matches
+      ) {
+        requestAnimationFrame(() => {
+          galleryRef.current?.scrollIntoView({
+            behavior: "smooth",
+            block: "start",
+          });
+        });
+      }
 
       // "Surprise me" resolves to a concrete random style PER variation (each
       // of the 4 gets a different style, not 4 logos of one random style).
@@ -589,7 +620,10 @@ export default function Page() {
   // updates in place so you can keep iterating.
   // Returns whether the edit succeeded, so the composer can keep the user's
   // typed instruction on failure (nothing more frustrating than losing it).
-  async function runEdit(gen: Generation, instruction: string): Promise<boolean> {
+  async function runEdit(
+    gen: Generation,
+    instruction: string,
+  ): Promise<boolean> {
     const text = instruction.trim();
     if (editingRef.current || !text) return false;
     if (!hasOwnKey && credits <= 0) {
@@ -746,7 +780,13 @@ export default function Page() {
     setPrimaryColor(color);
     setMonochrome(false);
     setActivePreset(null);
-    setImported({ source: r.source, color, name, logo: r.logoDataUrl, palette });
+    setImported({
+      source: r.source,
+      color,
+      name,
+      logo: r.logoDataUrl,
+      palette,
+    });
     toast({
       title: "Brand imported",
       description: name
@@ -763,7 +803,9 @@ export default function Page() {
 
   // Update a logo in the gallery + lightbox in place (and persist metadata).
   function updateGen(id: string, patch: Partial<Generation>) {
-    setGenerations((prev) => prev.map((g) => (g.id === id ? { ...g, ...patch } : g)));
+    setGenerations((prev) =>
+      prev.map((g) => (g.id === id ? { ...g, ...patch } : g)),
+    );
     setActiveGen((cur) => (cur && cur.id === id ? { ...cur, ...patch } : cur));
   }
 
@@ -885,7 +927,9 @@ export default function Page() {
         signal: ctrl.signal,
       });
       if (!res.ok) {
-        const msg = (res.headers.get("Content-Type") || "").includes("text/plain")
+        const msg = (res.headers.get("Content-Type") || "").includes(
+          "text/plain",
+        )
           ? await res.text()
           : "Couldn't read that image.";
         if (stale()) return;
@@ -919,7 +963,11 @@ export default function Page() {
       ) {
         setSelectedStyle(json.styleGuess);
       }
-      if (colorUntouched && json.dominantColor && json.dominantColor !== "auto") {
+      if (
+        colorUntouched &&
+        json.dominantColor &&
+        json.dominantColor !== "auto"
+      ) {
         setPrimaryColor(json.dominantColor);
       }
       const bits = [
@@ -1025,7 +1073,12 @@ export default function Page() {
 
   return (
     <MotionConfig reducedMotion="user">
-      <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+      <div
+        className="sr-only"
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+      >
         {liveMessage}
       </div>
       <div className="app-shell min-h-[100svh] md:h-[100svh] md:overflow-hidden">
@@ -1069,319 +1122,324 @@ export default function Page() {
           aria-label="Logo settings"
           className="area-controls flex min-h-0 flex-col border-border md:overflow-hidden md:border-r"
         >
-            <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-5 py-3">
-              <BrandNameField
-                companyName={companyName}
-                onCompanyNameChange={setCompanyName}
-                onResult={handleBrandImport}
-                imported={imported}
-                onClear={() => {
-                  importReqRef.current++; // cancel any in-flight import
-                  setImported(null);
-                }}
-                onPickColor={pickImportedColor}
-                disabled={isGenerating}
-              />
+          <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-5 py-3">
+            <BrandNameField
+              companyName={companyName}
+              onCompanyNameChange={setCompanyName}
+              onResult={handleBrandImport}
+              imported={imported}
+              onClear={() => {
+                importReqRef.current++; // cancel any in-flight import
+                setImported(null);
+              }}
+              onPickColor={pickImportedColor}
+              disabled={isGenerating}
+            />
 
-              <div>
-                <span className="label-eyebrow mb-2 block">Quick start</span>
-                <div
-                  role="group"
-                  aria-label="Quick start presets"
-                  className="scroll-fade-x -mx-1 flex gap-1.5 overflow-x-auto overscroll-x-contain px-1 pb-1 pr-7 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-                >
-                  {STARTER_PRESETS.map((p) => {
-                    const Icon = p.icon;
-                    return (
-                      <button
-                        key={p.id}
-                        type="button"
-                        onClick={() => applyPreset(p)}
-                        aria-pressed={activePreset === p.id}
-                        title={`${p.label}: ${p.style} style (seeds the whole form)`}
-                        className={cn(
-                          "flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card",
-                          activePreset === p.id
-                            ? "border-primary bg-primary/10 text-foreground"
-                            : "border-border bg-background text-muted-foreground hover:border-foreground/30 hover:text-foreground",
-                        )}
-                      >
-                        <Icon aria-hidden className="size-3.5 shrink-0" />
-                        {p.label}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <div>
-                <span className="label-eyebrow mb-2 block">
-                  Describe it
-                  <span className="ml-1 lowercase tracking-normal text-muted-foreground">
-                    (optional)
-                  </span>
-                </span>
-                <Textarea
-                  value={additionalInfo}
-                  onChange={(e) => {
-                    setAdditionalInfo(e.target.value);
-                    setActivePreset(null);
-                  }}
-                  placeholder="A fox, friendly and modern, with a subtle leaf…"
-                />
-                {additionalInfo.trim() === "" && (
-                  <div
-                    role="group"
-                    aria-label="Description suggestions"
-                    className="scroll-fade-x -mx-1 mt-2 flex gap-1.5 overflow-x-auto overscroll-x-contain px-1 pb-0.5 pr-7 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-                  >
-                    {DESCRIBE_SUGGESTIONS.map((s) => (
-                      <button
-                        key={s}
-                        type="button"
-                        onClick={() => setAdditionalInfo(s)}
-                        title={s}
-                        className="shrink-0 whitespace-nowrap rounded-full border border-border bg-background px-2.5 py-1.5 text-[0.7rem] text-muted-foreground transition-colors hover:border-primary/40 hover:bg-primary/5 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-card sm:py-1"
-                      >
-                        {s.length > 24 ? s.slice(0, 22) + "…" : s}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {reference && refStatus === "ready" && (
-                <div className="flex w-fit items-center gap-1.5 rounded-full border border-border bg-secondary/50 px-2.5 py-1 text-xs">
-                  <Sparkles className="size-3 text-primary" />
-                  <span className="text-muted-foreground">
-                    Inspired by reference
-                  </span>
-                  {reference.styleGuess && (
-                    <span className="font-medium text-foreground">
-                      · {reference.styleGuess}
-                    </span>
-                  )}
-                  <button
-                    type="button"
-                    onClick={handleClearReference}
-                    aria-label="Remove reference"
-                    className="ml-0.5 text-muted-foreground transition-colors hover:text-foreground"
-                  >
-                    <X className="size-3" />
-                  </button>
-                </div>
-              )}
-
-              <div>
-                <span className="label-eyebrow mb-2 block">Logo type</span>
-                <LogoTypeSelect
-                  value={logoType}
-                  onChange={(v) => {
-                    setLogoType(v);
-                    setActivePreset(null);
-                  }}
-                />
-              </div>
-
-              <div>
-                <span className="label-eyebrow mb-2.5 block">Style</span>
-                <StylePicker
-                  styles={logoStyles}
-                  value={selectedStyle}
-                  onChange={(v) => {
-                    styleTouchRef.current++;
-                    setSelectedStyle(v);
-                    setActivePreset(null);
-                  }}
-                />
-              </div>
-
-              <div>
-                <div className="flex flex-wrap gap-x-10 gap-y-5">
-                  <ColorSwatches
-                    label="Brand color"
-                    presets={primaryColors}
-                    value={primaryColor}
-                    onChange={(v) => {
-                      colorTouchRef.current++;
-                      setPrimaryColor(v);
-                      setActivePreset(null);
-                    }}
-                  />
-                  <ColorSwatches
-                    label="Background"
-                    presets={backgroundColors}
-                    value={backgroundColor}
-                    onChange={(v) => {
-                      setBackgroundColor(v);
-                      setActivePreset(null);
-                    }}
-                  />
-                </div>
-                <p className="mt-2.5 text-xs text-muted-foreground">
-                  {primaryColor === AUTO_COLOR || backgroundColor === AUTO_COLOR ? (
-                    <span className="flex items-center gap-1.5">
-                      <Sparkles className="size-3.5 shrink-0 text-primary" />
-                      AI will pick a fitting color. Regenerate for different
-                      looks.
-                    </span>
-                  ) : contrastRatio(primaryColor, backgroundColor) < 1.6 ? (
-                    <span className="flex items-center gap-1.5 text-amber-700 dark:text-amber-400">
-                      <AlertTriangle className="size-3.5 shrink-0" />
-                      Low contrast: your logo may be hard to see on this
-                      background.
-                    </span>
-                  ) : (
-                    "Colors your icon and name together."
-                  )}
-                </p>
-              </div>
-
-              <div>
-                <button
-                  type="button"
-                  onClick={() => setShowAdvanced((v) => !v)}
-                  className="label-eyebrow flex items-center gap-1 transition-colors hover:text-foreground"
-                  aria-expanded={showAdvanced}
-                >
-                  <ChevronRight
-                    className={cn(
-                      "size-3 transition-transform duration-200",
-                      showAdvanced && "rotate-90",
-                    )}
-                  />
-                  Advanced
-                  <span className="ml-1 lowercase tracking-normal text-muted-foreground">
-                    (optional)
-                  </span>
-                </button>
-
-                {showAdvanced && (
-                  <div className="mt-3 space-y-4">
-                    <div>
-                      <span className="label-eyebrow mb-2 block">Detail</span>
-                      <Segmented
-                        options={detailLevels}
-                        value={detailLevel}
-                        onChange={setDetailLevel}
-                        ariaLabel="Detail level"
-                      />
-                    </div>
-
-                    <div className="flex items-center justify-between">
-                      <span
-                        id="monochrome-label"
-                        onClick={() => setMonochrome((v) => !v)}
-                        className="label-eyebrow cursor-pointer select-none"
-                      >
-                        Monochrome
-                      </span>
-                      <button
-                        type="button"
-                        role="switch"
-                        aria-checked={monochrome}
-                        aria-labelledby="monochrome-label"
-                        onClick={() => setMonochrome((v) => !v)}
-                        className={cn(
-                          "relative h-5 w-9 shrink-0 rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card",
-                          monochrome ? "bg-primary" : "bg-input",
-                        )}
-                      >
-                        <span
-                          className={cn(
-                            "pointer-events-none absolute top-1/2 size-4 -translate-y-1/2 rounded-full bg-white shadow-sm transition-[left] duration-200 ease-out",
-                            monochrome ? "left-[1.125rem]" : "left-0.5",
-                          )}
-                        />
-                      </button>
-                    </div>
-
-                    <div>
-                      <span className="label-eyebrow mb-2 block">
-                        Reference logo
-                      </span>
-                      <ReferenceUpload
-                        value={reference}
-                        status={refStatus}
-                        onFile={handleReferenceFile}
-                        onClear={handleClearReference}
-                      />
-                    </div>
-                  </div>
-                )}
+            <div>
+              <span className="label-eyebrow mb-2 block">Quick start</span>
+              <div
+                role="group"
+                aria-label="Quick start presets"
+                className="scroll-fade-x -mx-1 flex gap-1.5 overflow-x-auto overscroll-x-contain px-1 pb-1 pr-7 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+              >
+                {STARTER_PRESETS.map((p) => {
+                  const Icon = p.icon;
+                  return (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => applyPreset(p)}
+                      aria-pressed={activePreset === p.id}
+                      title={`${p.label}: ${p.style} style (seeds the whole form)`}
+                      className={cn(
+                        "flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card",
+                        activePreset === p.id
+                          ? "border-primary bg-primary/10 text-foreground"
+                          : "border-border bg-background text-muted-foreground hover:border-foreground/30 hover:text-foreground",
+                      )}
+                    >
+                      <Icon aria-hidden className="size-3.5 shrink-0" />
+                      {p.label}
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
-            <div className="space-y-3 border-t border-border px-5 py-4">
-              <div className="flex items-center justify-between gap-3">
-                <span className="label-eyebrow">Variations</span>
-                <div className="w-36 md:w-[7rem]">
-                  <Segmented
-                    options={["1", "2", "4"]}
-                    value={String(variationCount)}
-                    onChange={(v) => setVariationCount(Number(v))}
-                    ariaLabel="Number of variations"
-                  />
-                </div>
-              </div>
-              <div className="flex items-stretch gap-2">
-                <Tip label="Feeling lucky" side="top">
-                  <button
-                    type="button"
-                    onClick={handleLucky}
-                    disabled={isGenerating}
-                    aria-label="Feeling lucky: random style and AI-picked color"
-                    className="flex w-12 shrink-0 items-center justify-center rounded-xl border border-border text-muted-foreground transition-colors hover:border-foreground/30 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card disabled:pointer-events-none disabled:opacity-50"
-                  >
-                    <Dices className="size-5" />
-                  </button>
-                </Tip>
-                <Button
-                  type="submit"
-                  size="lg"
-                  disabled={isGenerating}
-                  className="flex-1 rounded-xl text-[0.95rem] font-bold"
-                >
-                  {isGenerating ? (
-                    <span className="spinner-ring size-4" />
-                  ) : (
-                    <Sparkles className="size-4" />
-                  )}
-                  {isGenerating
-                    ? "Generating…"
-                    : !hasOwnKey && credits <= 0
-                      ? "Add a key to generate"
-                      : variationCount > 1
-                        ? `Generate ${variationCount} logos`
-                        : "Generate logo"}
-                </Button>
-              </div>
-
-              <p className="text-center text-xs text-muted-foreground">
-                <span
-                  className={cn(
-                    !hasOwnKey &&
-                      credits <= 0 &&
-                      "text-amber-700 dark:text-amber-400",
-                  )}
-                >
-                  {creditCaption}
+            <div>
+              <span className="label-eyebrow mb-2 block">
+                Describe it
+                <span className="ml-1 lowercase tracking-normal text-muted-foreground">
+                  (optional)
                 </span>
-                {!hasOwnKey && (
-                  <>
-                    {" · "}
+              </span>
+              <Textarea
+                value={additionalInfo}
+                onChange={(e) => {
+                  setAdditionalInfo(e.target.value);
+                  setActivePreset(null);
+                }}
+                placeholder="A fox, friendly and modern, with a subtle leaf…"
+              />
+              {additionalInfo.trim() === "" && (
+                <div
+                  role="group"
+                  aria-label="Description suggestions"
+                  className="scroll-fade-x -mx-1 mt-2 flex gap-1.5 overflow-x-auto overscroll-x-contain px-1 pb-0.5 pr-7 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+                >
+                  {DESCRIBE_SUGGESTIONS.map((s) => (
                     <button
+                      key={s}
                       type="button"
-                      onClick={() => setApiKeyOpen(true)}
-                      className="font-medium text-foreground underline decoration-border underline-offset-2 transition-colors hover:decoration-foreground"
+                      onClick={() => setAdditionalInfo(s)}
+                      title={s}
+                      className="shrink-0 whitespace-nowrap rounded-full border border-border bg-background px-2.5 py-1.5 text-[0.7rem] text-muted-foreground transition-colors hover:border-primary/40 hover:bg-primary/5 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-card sm:py-1"
                     >
-                      {credits <= 0 ? "Add your key" : "Use your key"}
+                      {s.length > 24 ? s.slice(0, 22) + "…" : s}
                     </button>
-                  </>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {reference && refStatus === "ready" && (
+              <div className="flex w-fit items-center gap-1.5 rounded-full border border-border bg-secondary/50 px-2.5 py-1 text-xs">
+                <Sparkles className="size-3 text-primary" />
+                <span className="text-muted-foreground">
+                  Inspired by reference
+                </span>
+                {reference.styleGuess && (
+                  <span className="font-medium text-foreground">
+                    · {reference.styleGuess}
+                  </span>
+                )}
+                <button
+                  type="button"
+                  onClick={handleClearReference}
+                  aria-label="Remove reference"
+                  className="ml-0.5 text-muted-foreground transition-colors hover:text-foreground"
+                >
+                  <X className="size-3" />
+                </button>
+              </div>
+            )}
+
+            <div>
+              <span className="label-eyebrow mb-2 block">Logo type</span>
+              <LogoTypeSelect
+                value={logoType}
+                onChange={(v) => {
+                  setLogoType(v);
+                  setActivePreset(null);
+                }}
+              />
+            </div>
+
+            <div>
+              <span className="label-eyebrow mb-2.5 block">Style</span>
+              <StylePicker
+                styles={logoStyles}
+                value={selectedStyle}
+                onChange={(v) => {
+                  styleTouchRef.current++;
+                  setSelectedStyle(v);
+                  setActivePreset(null);
+                }}
+              />
+            </div>
+
+            <div>
+              <div className="flex flex-wrap gap-x-10 gap-y-5">
+                <ColorSwatches
+                  label="Brand color"
+                  presets={primaryColors}
+                  value={primaryColor}
+                  onChange={(v) => {
+                    colorTouchRef.current++;
+                    setPrimaryColor(v);
+                    setActivePreset(null);
+                  }}
+                />
+                <ColorSwatches
+                  label="Background"
+                  presets={backgroundColors}
+                  value={backgroundColor}
+                  onChange={(v) => {
+                    setBackgroundColor(v);
+                    setActivePreset(null);
+                  }}
+                />
+              </div>
+              <p className="mt-2.5 text-xs text-muted-foreground">
+                {primaryColor === AUTO_COLOR ||
+                backgroundColor === AUTO_COLOR ? (
+                  <span className="flex items-center gap-1.5">
+                    <Sparkles className="size-3.5 shrink-0 text-primary" />
+                    AI will pick a fitting color. Regenerate for different
+                    looks.
+                  </span>
+                ) : contrastRatio(primaryColor, backgroundColor) < 1.6 ? (
+                  <span className="flex items-center gap-1.5 text-amber-700 dark:text-amber-400">
+                    <AlertTriangle className="size-3.5 shrink-0" />
+                    Low contrast: your logo may be hard to see on this
+                    background.
+                  </span>
+                ) : (
+                  "Colors your icon and name together."
                 )}
               </p>
             </div>
-          </form>
+
+            <div>
+              <button
+                type="button"
+                onClick={() => setShowAdvanced((v) => !v)}
+                className="label-eyebrow flex items-center gap-1 transition-colors hover:text-foreground"
+                aria-expanded={showAdvanced}
+              >
+                <ChevronRight
+                  className={cn(
+                    "size-3 transition-transform duration-200",
+                    showAdvanced && "rotate-90",
+                  )}
+                />
+                Advanced
+                <span className="ml-1 lowercase tracking-normal text-muted-foreground">
+                  (optional)
+                </span>
+              </button>
+
+              {showAdvanced && (
+                <div className="mt-3 space-y-4">
+                  <div>
+                    <span className="label-eyebrow mb-2 block">Detail</span>
+                    <Segmented
+                      options={detailLevels}
+                      value={detailLevel}
+                      onChange={setDetailLevel}
+                      ariaLabel="Detail level"
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-between">
+                    <span
+                      id="monochrome-label"
+                      onClick={() => setMonochrome((v) => !v)}
+                      className="label-eyebrow cursor-pointer select-none"
+                    >
+                      Monochrome
+                    </span>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={monochrome}
+                      aria-labelledby="monochrome-label"
+                      onClick={() => setMonochrome((v) => !v)}
+                      className={cn(
+                        "relative h-5 w-9 shrink-0 rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card",
+                        monochrome ? "bg-primary" : "bg-input",
+                      )}
+                    >
+                      <span
+                        className={cn(
+                          "pointer-events-none absolute top-1/2 size-4 -translate-y-1/2 rounded-full bg-white shadow-sm transition-[left] duration-200 ease-out",
+                          monochrome ? "left-[1.125rem]" : "left-0.5",
+                        )}
+                      />
+                    </button>
+                  </div>
+
+                  <div>
+                    <span className="label-eyebrow mb-2 block">
+                      Reference logo
+                    </span>
+                    <ReferenceUpload
+                      value={reference}
+                      status={refStatus}
+                      onFile={handleReferenceFile}
+                      onClear={handleClearReference}
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* On the single-column phone layout this action bar sticks to the
+                bottom of the viewport, so Generate stays one thumb-tap away no
+                matter how far the user has scrolled into the controls. Desktop
+                keeps it as the static bottom of the sidebar. */}
+          <div className="sticky bottom-0 z-30 space-y-2.5 border-t border-border bg-background/95 px-5 pb-[max(0.875rem,env(safe-area-inset-bottom))] pt-3 backdrop-blur-sm md:static md:z-auto md:space-y-3 md:bg-transparent md:pb-4 md:pt-4 md:backdrop-blur-none">
+            <div className="flex items-center justify-between gap-3">
+              <span className="label-eyebrow">Variations</span>
+              <div className="w-36 md:w-[7rem]">
+                <Segmented
+                  options={["1", "2", "4"]}
+                  value={String(variationCount)}
+                  onChange={(v) => setVariationCount(Number(v))}
+                  ariaLabel="Number of variations"
+                />
+              </div>
+            </div>
+            <div className="flex items-stretch gap-2">
+              <Tip label="Feeling lucky" side="top">
+                <button
+                  type="button"
+                  onClick={handleLucky}
+                  disabled={isGenerating}
+                  aria-label="Feeling lucky: random style and AI-picked color"
+                  className="flex w-12 shrink-0 items-center justify-center rounded-xl border border-border text-muted-foreground transition-colors hover:border-foreground/30 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card disabled:pointer-events-none disabled:opacity-50"
+                >
+                  <Dices className="size-5" />
+                </button>
+              </Tip>
+              <Button
+                type="submit"
+                size="lg"
+                disabled={isGenerating}
+                className="flex-1 rounded-xl text-[0.95rem] font-bold"
+              >
+                {isGenerating ? (
+                  <span className="spinner-ring size-4" />
+                ) : (
+                  <Sparkles className="size-4" />
+                )}
+                {isGenerating
+                  ? "Generating…"
+                  : !hasOwnKey && credits <= 0
+                    ? "Add a key to generate"
+                    : variationCount > 1
+                      ? `Generate ${variationCount} logos`
+                      : "Generate logo"}
+              </Button>
+            </div>
+
+            <p className="text-center text-xs text-muted-foreground">
+              <span
+                className={cn(
+                  !hasOwnKey &&
+                    credits <= 0 &&
+                    "text-amber-700 dark:text-amber-400",
+                )}
+              >
+                {creditCaption}
+              </span>
+              {!hasOwnKey && (
+                <>
+                  {" · "}
+                  <button
+                    type="button"
+                    onClick={() => setApiKeyOpen(true)}
+                    className="font-medium text-foreground underline decoration-border underline-offset-2 transition-colors hover:decoration-foreground"
+                  >
+                    {credits <= 0 ? "Add your key" : "Use your key"}
+                  </button>
+                </>
+              )}
+            </p>
+          </div>
+        </form>
 
         {/* ── Footer (bottom of the generation column) ──── */}
         <footer className="area-footer flex items-center justify-between gap-3 border-t border-border px-5 py-3.5">
@@ -1423,7 +1481,18 @@ export default function Page() {
         </footer>
 
         {/* ── Gallery ───────────────────────────────────── */}
-        <main className="area-gallery relative min-h-0 border-b border-border/60 md:overflow-y-auto md:border-b-0">
+        <main
+          ref={galleryRef}
+          className="area-gallery relative min-h-0 border-b border-border/60 md:overflow-y-auto md:border-b-0"
+        >
+          {/* Orientation cue for the phone layout, where scrolling (or the
+              generate auto-scroll) lands here without the desktop pane split. */}
+          {(generations.length > 0 || pendingCount > 0) && (
+            <h2 className="label-eyebrow px-5 pt-4 md:hidden">
+              Your logos
+              {generations.length > 0 ? ` (${generations.length})` : ""}
+            </h2>
+          )}
           <Gallery
             generations={generations}
             pendingCount={pendingCount}
@@ -1467,9 +1536,7 @@ export default function Page() {
         onMinimize={brandKit.minimize}
         onDiscard={brandKit.discard}
         onRebuild={brandKit.rebuild}
-        onRemoveKit={() =>
-          brandKit.gen && brandKit.removeKit(brandKit.gen.id)
-        }
+        onRemoveKit={() => brandKit.gen && brandKit.removeKit(brandKit.gen.id)}
         onDownloadAll={brandKit.downloadAll}
         onDownloadGuide={brandKit.downloadGuide}
         onBuild={brandKit.build}
