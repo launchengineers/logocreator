@@ -40,9 +40,9 @@ const CATEGORY_META: Record<string, { blurb: string; paid: boolean }> = {
     paid: true,
   },
   "Icons & favicons": { blurb: "App icon + every favicon size", paid: false },
-  "Web & social": { blurb: "Avatar, banner, OG card & patterns", paid: false },
+  "Web & social": { blurb: "Avatar, banner, OG card & pattern", paid: false },
   "Product mockups": {
-    blurb: "Business card, t-shirt, website, phone, mug, signage",
+    blurb: "Business card, website, phone & signage",
     paid: false,
   },
   Mockups: { blurb: "T-shirt, mug, tote, business card, signage", paid: true },

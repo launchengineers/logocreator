@@ -232,6 +232,67 @@ export function isLightInkLogo(transparent: HTMLCanvasElement): boolean {
   return inkStats(cropToContent(transparent, 0.02)).luma > INK_LIGHT;
 }
 
+/**
+ * Fraction of a cutout's ink (alpha >= 128) darker than `threshold` luma.
+ * The mean-luma reading above can pass a logo whose *average* is mid (blue icon
+ * + white counters) while one of its parts (dark lettering) is still illegible
+ * on a dark surface; this measures that failing part directly.
+ */
+export function darkInkFraction(
+  source: HTMLCanvasElement | HTMLImageElement,
+  threshold = 0.3,
+): number {
+  const w = 64;
+  const h = 64;
+  const c = document.createElement("canvas");
+  c.width = w;
+  c.height = h;
+  const cx = c.getContext("2d", { willReadFrequently: true })!;
+  cx.imageSmoothingEnabled = true;
+  cx.imageSmoothingQuality = "high";
+  cx.drawImage(source, 0, 0, w, h);
+  const d = cx.getImageData(0, 0, w, h).data;
+  let ink = 0;
+  let dark = 0;
+  for (let i = 0; i < d.length; i += 4) {
+    if (d[i + 3] < 128) continue;
+    ink++;
+    const luma = (0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2]) / 255;
+    if (luma < threshold) dark++;
+  }
+  return ink === 0 ? 0 : dark / ink;
+}
+
+/**
+ * Reverse a logo's near-dark ink to white so it reads on dark surfaces, while
+ * leaving mid and light tones (brand colors, counters) untouched. This is the
+ * "reversed" logo a designer ships: dark lettering flips to white, a colored
+ * mark keeps its color. The remap blends across a luma band so anti-aliased
+ * edges and gradient shading don't band.
+ */
+export function reverseForDark(src: HTMLCanvasElement): HTMLCanvasElement {
+  const c = document.createElement("canvas");
+  c.width = src.width;
+  c.height = src.height;
+  const ctx = c.getContext("2d", { willReadFrequently: true })!;
+  ctx.drawImage(src, 0, 0);
+  const im = ctx.getImageData(0, 0, c.width, c.height);
+  const d = im.data;
+  const HI = 0.34; // ink at or above this luma is untouched
+  const LO = 0.18; // ink at or below this luma becomes fully white
+  for (let i = 0; i < d.length; i += 4) {
+    if (d[i + 3] === 0) continue;
+    const luma = (0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2]) / 255;
+    if (luma >= HI) continue;
+    const t = Math.min(1, (HI - luma) / (HI - LO));
+    d[i] += (255 - d[i]) * t;
+    d[i + 1] += (255 - d[i + 1]) * t;
+    d[i + 2] += (255 - d[i + 2]) * t;
+  }
+  ctx.putImageData(im, 0, 0);
+  return c;
+}
+
 /** Bounding box of non-transparent content, or null if fully transparent. */
 export function contentBounds(
   canvas: HTMLCanvasElement,
@@ -1072,6 +1133,11 @@ export function categoryPreviews(
   const lightInk = cutoutOk && ink.luma > INK_LIGHT;
   const darkInk = cutoutOk && ink.luma < INK_DARK;
   const monoInk = ink.chroma < INK_MONO_CHROMA;
+  // Same partial-dark-ink reading the builders use, so the previews show the
+  // exact treatment the real assets will get.
+  const darkFrac = cutoutOk ? darkInkFraction(transFull) : 0;
+  const reversed =
+    cutoutOk && !lightInk && darkFrac > 0.1 ? reverseForDark(transFull) : null;
   const markLight = inkStats(markGlyph).luma > INK_LIGHT;
   // On a forced-light surface a monochrome light logo is printed in its dark
   // form (how you'd really print it); colorful marks keep their hue.
@@ -1090,7 +1156,13 @@ export function categoryPreviews(
   };
   return {
     "Logo variants": u(
-      scaleOnto(full, W, H, darkInk ? LIGHT_SURFACE : DARK_SURFACE, 0.18),
+      scaleOnto(
+        darkInk ? full : (reversed ?? full),
+        W,
+        H,
+        darkInk ? LIGHT_SURFACE : DARK_SURFACE,
+        0.18,
+      ),
     ),
     "Logo lockups": u(
       scaleOnto(full, W, H, lightInk ? DARK_SURFACE : LIGHT_SURFACE, 0.16),
@@ -1107,10 +1179,10 @@ export function categoryPreviews(
     "Web & social": cutoutOk
       ? u(
           onGradient(
-            full,
+            reversed ?? full,
             W,
             H,
-            lightInk ? toneAt(brandColor, 0.3) : brandColor,
+            lightInk || reversed ? toneAt(brandColor, 0.3) : brandColor,
             0.44,
             0.5,
             0.5,
@@ -1155,6 +1227,12 @@ export function deterministicAssetSpecs(
   const lightInk = cutoutOk && ink.luma > INK_LIGHT;
   const darkInk = cutoutOk && ink.luma < INK_DARK;
   const monoInk = ink.chroma < INK_MONO_CHROMA;
+  // A logo can pass the mean-luma check yet still carry a chunk of near-black
+  // ink (dark lettering beside a colored icon). That part is illegible on any
+  // dark or brand-toned surface, so those surfaces get the reversed form.
+  const darkFrac = cutoutOk ? darkInkFraction(transFull) : 0;
+  const reversed =
+    cutoutOk && !lightInk && darkFrac > 0.1 ? reverseForDark(transFull) : null;
   // The icon/favicon mark can differ from the whole logo (e.g. an isolated
   // symbol), so measure it on its own to tone the tile behind it.
   const markLight = inkStats(markGlyph).luma > INK_LIGHT;
@@ -1165,8 +1243,10 @@ export function deterministicAssetSpecs(
   const appTile = tileWith(markGlyph, 1024, tileBg, 0.18, 0.22);
 
   // Composite the full logo on a brand gradient, or clean white if no cutout.
-  // A light logo gets a deepened gradient so it doesn't wash out on a pale one.
-  const gradientHex = lightInk ? toneAt(brandColor, 0.3) : brandColor;
+  // Light logos and reversed logos (white lettering) both need a deepened
+  // gradient so they don't wash out on a pale one.
+  const gradientHex =
+    lightInk || reversed ? toneAt(brandColor, 0.3) : brandColor;
   const composite = (
     w: number,
     h: number,
@@ -1175,7 +1255,15 @@ export function deterministicAssetSpecs(
     cy = 0.5,
   ) =>
     cutoutOk
-      ? onGradient(fullForComposite, w, h, gradientHex, maxFrac, cx, cy)
+      ? onGradient(
+          reversed ?? fullForComposite,
+          w,
+          h,
+          gradientHex,
+          maxFrac,
+          cx,
+          cy,
+        )
       : onSolid(fullForComposite, w, h, "#ffffff", maxFrac);
 
   // ── Logo variants ──────────────────────────────────────
@@ -1245,12 +1333,13 @@ export function deterministicAssetSpecs(
         group: "Logo variants",
         name: "On dark",
         filename: "variants/logo-on-dark.png",
-        // Mirror image: a monochrome dark logo would vanish on near-black.
+        // A monochrome dark logo would vanish on near-black, so it flips to its
+        // white form; a mixed logo gets its dark ink reversed to white.
         build: png(
           scaleOnto(
             darkInk && monoInk
               ? recolor(transFull, LIGHT_SURFACE, true)
-              : transFull,
+              : (reversed ?? transFull),
             1024,
             1024,
             DARK_SURFACE,
@@ -1372,12 +1461,6 @@ export function deterministicAssetSpecs(
     },
     {
       group: "Web & social",
-      name: "Wallpaper",
-      filename: "social/wallpaper-1920x1080.png",
-      build: png(composite(1920, 1080, 0.3)),
-    },
-    {
-      group: "Web & social",
       name: "Pattern",
       filename: "social/pattern.png",
       build: png(patternCanvas(markGlyph, 1024, brandColor)),
@@ -1391,9 +1474,11 @@ export function deterministicAssetSpecs(
 // ── Product mockups (deterministic illustrated scenes) ──────────────────
 // The logo composited onto clean, flat vector scenes drawn entirely on canvas:
 // no photos, no AI, no licensing, and fully repeatable. Every scene places the
-// logo on a LIGHT surface (card, screen, panel, garment) so it reads whether or
+// logo on a LIGHT surface (card, screen, panel, sign) so it reads whether or
 // not the background could be keyed out, while brand color carries the
-// surrounding elements. A free counterpart to the AI "Mockups" product shots.
+// surrounding elements. Deliberately limited to the print/digital scenes that
+// hold up as flat illustrations; merch (tee, tote, mug) is left to the
+// photorealistic AI "Mockups" so the kit never ships a weaker duplicate.
 
 type Drawable = HTMLImageElement | HTMLCanvasElement;
 
@@ -1481,39 +1566,6 @@ function businessCardScene(logo: Drawable, brand: string): HTMLCanvasElement {
     cw * 0.66,
     ch * 0.56,
   );
-  return c;
-}
-
-function tshirtScene(logo: Drawable, brand: string): HTMLCanvasElement {
-  const { c, ctx } = sceneCanvas(shade(brand, 0.9));
-  const cx = SCENE_W / 2;
-  const topY = 250;
-  withShadow(ctx, 50, 24, () => {
-    ctx.beginPath();
-    ctx.moveTo(cx - 150, topY + 36);
-    ctx.lineTo(cx - 312, topY + 120);
-    ctx.lineTo(cx - 250, topY + 268);
-    ctx.lineTo(cx - 182, topY + 226);
-    ctx.lineTo(cx - 182, topY + 660);
-    ctx.lineTo(cx + 182, topY + 660);
-    ctx.lineTo(cx + 182, topY + 226);
-    ctx.lineTo(cx + 250, topY + 268);
-    ctx.lineTo(cx + 312, topY + 120);
-    ctx.lineTo(cx + 150, topY + 36);
-    ctx.quadraticCurveTo(cx, topY + 116, cx - 150, topY + 36);
-    ctx.closePath();
-    ctx.fillStyle = "#e9e7e2"; // light heather so any logo reads
-    ctx.fill();
-  });
-  // Collar inner shading.
-  ctx.beginPath();
-  ctx.moveTo(cx - 150, topY + 36);
-  ctx.quadraticCurveTo(cx, topY + 92, cx + 150, topY + 36);
-  ctx.quadraticCurveTo(cx, topY + 128, cx - 150, topY + 36);
-  ctx.closePath();
-  ctx.fillStyle = "rgba(20,18,15,0.06)";
-  ctx.fill();
-  drawContained(ctx, logo, cx - 150, topY + 230, 300, 240);
   return c;
 }
 
@@ -1607,35 +1659,6 @@ function phoneScene(logo: Drawable, brand: string): HTMLCanvasElement {
   return c;
 }
 
-function mugScene(logo: Drawable, brand: string): HTMLCanvasElement {
-  const { c, ctx } = sceneCanvas(shade(brand, 0.91));
-  const bx = 560;
-  const by = 360;
-  const bw = 520;
-  const bh = 480;
-  // Handle (behind body).
-  ctx.save();
-  ctx.strokeStyle = "#e7e4de";
-  ctx.lineWidth = 60;
-  ctx.beginPath();
-  ctx.arc(bx + bw + 10, by + bh / 2, 130, -Math.PI / 2.1, Math.PI / 2.1);
-  ctx.stroke();
-  ctx.restore();
-  // Body.
-  withShadow(ctx, 55, 26, () => {
-    roundRectPath(ctx, bx, by, bw, bh, 46);
-    ctx.fillStyle = "#ffffff";
-    ctx.fill();
-  });
-  // Rim ellipse.
-  ctx.beginPath();
-  ctx.ellipse(bx + bw / 2, by + 14, bw / 2 - 6, 30, 0, 0, Math.PI * 2);
-  ctx.fillStyle = shade(brand, 0.86);
-  ctx.fill();
-  drawContained(ctx, logo, bx + bw * 0.14, by + bh * 0.24, bw * 0.72, bh * 0.5);
-  return c;
-}
-
 function signageScene(logo: Drawable, brand: string): HTMLCanvasElement {
   const { c, ctx } = sceneCanvas(shade(brand, 0.82));
   // Subtle wall banding for depth.
@@ -1674,10 +1697,10 @@ export function mockupScenes(
   ctx: DeterministicCtx,
 ): AssetSpec[] {
   const { brandColor } = ctx;
-  // Every scene prints the logo on a light surface (card, screen, garment, mug,
-  // sign). A monochrome light logo would vanish there, so print its dark form -
-  // exactly how you'd put a white logo on white merch. Colorful or dark logos
-  // keep their real artwork.
+  // Every scene prints the logo on a light surface (card, screen, sign). A
+  // monochrome light logo would vanish there, so print its dark form - exactly
+  // how you'd put a white logo on a light surface. Colorful or dark logos keep
+  // their real artwork.
   const ink = inkStats(transFull);
   const lightMono =
     cutoutOk && ink.luma > INK_LIGHT && ink.chroma < INK_MONO_CHROMA;
@@ -1697,12 +1720,6 @@ export function mockupScenes(
     },
     {
       group: G,
-      name: "T-shirt",
-      filename: "scenes/t-shirt.png",
-      build: png(() => tshirtScene(logo, brandColor)),
-    },
-    {
-      group: G,
       name: "Website",
       filename: "scenes/website.png",
       build: png(() => browserScene(logo, brandColor)),
@@ -1712,12 +1729,6 @@ export function mockupScenes(
       name: "Phone app",
       filename: "scenes/phone.png",
       build: png(() => phoneScene(logo, brandColor)),
-    },
-    {
-      group: G,
-      name: "Mug",
-      filename: "scenes/mug.png",
-      build: png(() => mugScene(logo, brandColor)),
     },
     {
       group: G,
@@ -1746,7 +1757,7 @@ export function paletteFiles(palette: string[]): { css: string; json: string } {
 
 export function readme(companyName: string, palette: string[]): string {
   const name = companyName || "Your logo";
-  return `${name}: brand kit\nGenerated with LogoCreator.\n\nFOLDERS\n  variants/   original (1024) + transparent, monochrome (black/white), on-light, on-dark + logo.svg (auto-traced vector)\n  icons/      icon + app icon, and a full favicon set (16/32/48/180/192/512)\n  social/     avatar, Open Graph card, social banner, wallpaper, repeating pattern\n  scenes/     product mockups (on-device): business card, t-shirt, website, phone, mug, signage\n  mockups/    AI product shots: t-shirt, tote, mug, business card, signage\n  brand-colors.css / .json with the extracted palette: ${palette.join(", ")}\n  style-guide.pdf  printable brand guidelines: logo, clear space, color, type\n\nQUICK USE\n  - Favicon:   icons/favicon-32.png, favicon-16.png\n  - iOS:       icons/apple-touch-icon-180.png\n  - PWA/app:   icons/icon-192.png, icon-512.png, app-icon.png\n  - Link card: social/og-1200x630.png\n  - Header:    social/banner-1500x500.png\n  - Merch:     mockups/ (ready-to-share product visuals)\n`;
+  return `${name}: brand kit\nGenerated with LogoCreator.\n\nFOLDERS\n  variants/   original (1024) + transparent, monochrome (black/white), on-light, on-dark + logo.svg (auto-traced vector)\n  icons/      icon + app icon, and a full favicon set (16/32/48/180/192/512)\n  social/     avatar, Open Graph card, social banner, repeating pattern\n  scenes/     product mockups (on-device): business card, website, phone, signage\n  mockups/    AI product shots: t-shirt, tote, mug, business card, signage\n  brand-colors.css / .json with the extracted palette: ${palette.join(", ")}\n  style-guide.pdf  printable brand guidelines: logo, clear space, color, type\n\nQUICK USE\n  - Favicon:   icons/favicon-32.png, favicon-16.png\n  - iOS:       icons/apple-touch-icon-180.png\n  - PWA/app:   icons/icon-192.png, icon-512.png, app-icon.png\n  - Link card: social/og-1200x630.png\n  - Header:    social/banner-1500x500.png\n  - Merch:     mockups/ (ready-to-share product visuals)\n`;
 }
 
 export async function zipFiles(

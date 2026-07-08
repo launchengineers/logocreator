@@ -129,7 +129,9 @@ export async function POST(req: Request) {
   if (data.userAPIKey && clerkEnabled && user) {
     // Best-effort metadata write: never block (or fail) a generation on it,
     // and never leave an unhandled rejection if Clerk hiccups.
-    await (await clerkClient()).users
+    await (
+      await clerkClient()
+    ).users
       .updateUserMetadata(user.id, {
         unsafeMetadata: { remaining: "BYOK" },
       })
@@ -145,7 +147,9 @@ export async function POST(req: Request) {
     const identifier = user?.id ?? ip;
     const { success, remaining } = await ratelimit.limit(identifier);
     if (clerkEnabled && user) {
-      await (await clerkClient()).users
+      await (
+        await clerkClient()
+      ).users
         .updateUserMetadata(user.id, {
           unsafeMetadata: {
             remaining,
@@ -278,9 +282,7 @@ export async function POST(req: Request) {
     // abstract), where it excels. Both accept this body shape on Together.
     const body = {
       prompt,
-      model: hasText
-        ? "ideogram/ideogram-3.0"
-        : "black-forest-labs/FLUX.2-pro",
+      model: hasText ? "ideogram/ideogram-3.0" : "black-forest-labs/FLUX.2-pro",
       width: 1024,
       height: 1024,
       response_format: "base64" as const,
