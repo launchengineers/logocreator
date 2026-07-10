@@ -1,10 +1,11 @@
-import { clerkClient, currentUser } from "@clerk/nextjs/server";
+import { currentUser } from "@clerk/nextjs/server";
 import { ipAddress } from "@vercel/functions";
 import { Ratelimit } from "@upstash/ratelimit";
 import { Redis } from "@upstash/redis";
 import dedent from "dedent";
 import Together from "together-ai";
 import { z } from "zod";
+import { FREE_CREDITS, creditsKey } from "@/app/lib/credits";
 
 // Nearest human color name for a hex: the model honors "blue (#2F6FF5)" far
 // more reliably than a bare hex, and this also covers custom-picked colors.
@@ -117,61 +118,53 @@ export async function POST(req: Request) {
       headers: { "Content-Type": "text/plain" },
     });
   }
-  // Add rate limiting if Upstash API keys are set & no BYOK, otherwise skip.
-  // Function-local so the limiter never leaks across requests.
-  let ratelimit: Ratelimit | undefined;
-  if (hasLimiter && !data.userAPIKey) {
-    ratelimit = new Ratelimit({
-      redis: Redis.fromEnv(),
-      // Allow 3 requests per 2 months on prod
-      limiter: Ratelimit.fixedWindow(3, "60 d"),
-      analytics: true,
-      prefix: "logocreator",
-    });
-  }
-
   const client = new Together(options);
 
-  if (data.userAPIKey && clerkEnabled && user) {
-    // Best-effort metadata write: never block (or fail) a generation on it,
-    // and never leave an unhandled rejection if Clerk hiccups.
-    await (
-      await clerkClient()
-    ).users
-      .updateUserMetadata(user.id, {
-        unsafeMetadata: { remaining: "BYOK" },
-      })
-      .catch(() => {});
-  }
-
-  if (ratelimit) {
-    // Key anonymous callers by client IP so they don't all share one bucket.
-    // The platform client IP (x-vercel-forwarded-for), which a caller can't spoof
-    // via a forged x-forwarded-for header. Undefined off-Vercel → one shared
-    // bucket, which is acceptable for local dev.
-    const ip = ipAddress(req) || "anonymous";
-    const identifier = user?.id ?? ip;
-    const { success, remaining } = await ratelimit.limit(identifier);
-    if (clerkEnabled && user) {
-      await (
-        await clerkClient()
-      ).users
-        .updateUserMetadata(user.id, {
-          unsafeMetadata: {
-            remaining,
-          },
-        })
-        .catch(() => {});
-    }
-
-    if (!success) {
-      return new Response(
-        "You've used up all your credits. Enter your own Together AI key to generate more logos.",
-        {
-          status: 429,
-          headers: { "Content-Type": "text/plain" },
-        },
-      );
+  // ── Free-credit ledger (Upstash) ────────────────────────────────────────
+  // A signed-in user gets a durable allotment of FREE_CREDITS images, spent
+  // with an atomic INCR so a batch of parallel variation requests can never
+  // oversubscribe it. A failed generation refunds its credit below. Without
+  // Clerk configured, anonymous keyless callers fall back to a per-IP window
+  // (forgiving on purpose: office NATs share an IP).
+  let remaining: number | undefined;
+  let refundCredit: (() => Promise<void>) | undefined;
+  if (hasLimiter && !data.userAPIKey) {
+    const redis = Redis.fromEnv();
+    if (user) {
+      const key = creditsKey(user.id);
+      const used = await redis.incr(key);
+      if (used > FREE_CREDITS) {
+        // Undo the probe so the counter rests at the cap instead of creeping.
+        await redis.decr(key).catch(() => {});
+        return new Response(
+          "You've used your free credits. Add your own Together AI key to keep generating.",
+          { status: 429, headers: { "Content-Type": "text/plain" } },
+        );
+      }
+      remaining = FREE_CREDITS - used;
+      refundCredit = async () => {
+        await redis.decr(key).catch(() => {});
+      };
+    } else {
+      // Key anonymous callers by client IP so they don't all share one bucket.
+      // The platform client IP (x-vercel-forwarded-for), which a caller can't
+      // spoof via a forged x-forwarded-for header. Undefined off-Vercel → one
+      // shared bucket, which is acceptable for local dev.
+      const ratelimit = new Ratelimit({
+        redis,
+        limiter: Ratelimit.fixedWindow(FREE_CREDITS, "30 d"),
+        analytics: true,
+        prefix: "logocreator",
+      });
+      const ip = ipAddress(req) || "anonymous";
+      const { success, remaining: left } = await ratelimit.limit(ip);
+      remaining = left;
+      if (!success) {
+        return new Response(
+          "You've used up all your credits. Enter your own Together AI key to generate more logos.",
+          { status: 429, headers: { "Content-Type": "text/plain" } },
+        );
+      }
     }
   }
 
@@ -298,8 +291,15 @@ export async function POST(req: Request) {
       ...(hasText ? {} : { guidance: 7 }),
     };
     const response = await client.images.generate(body);
-    return Response.json(response.data[0], { status: 200 });
+    // `remaining` rides along so the client can update its credits caption
+    // without a second round-trip (undefined for BYOK / unlimited modes).
+    return Response.json(
+      { ...response.data[0], ...(remaining !== undefined ? { remaining } : {}) },
+      { status: 200 },
+    );
   } catch (error) {
+    // The image never materialized, so the credit it reserved goes back.
+    if (refundCredit) await refundCredit();
     const invalidApiKey = z
       .object({
         error: z.object({

@@ -59,8 +59,7 @@ import {
   clearLogos,
   patchLogo,
 } from "./lib/history-db";
-
-const FREE_CREDITS = 3;
+import { FREE_CREDITS } from "./lib/credits";
 
 // Image edits run through Together's FLUX.1-kontext model, which is occasionally
 // flaky (intermittent 500/429 or a slow response). Retry transient failures a
@@ -76,7 +75,7 @@ async function editWithRetry(
     height: number;
   },
   attempts = 3,
-): Promise<{ b64_json: string }> {
+): Promise<{ b64_json: string; remaining?: number }> {
   let lastErr: unknown;
   for (let i = 0; i < attempts; i++) {
     const ctrl = new AbortController();
@@ -317,9 +316,6 @@ export default function Page() {
   // free credit and spawn phantom skeletons; a ref flips immediately.
   const runningRef = useRef(false);
   const editingRef = useRef(false);
-  // Charge a run's free credit once, on its first successful logo (so closing
-  // the tab mid-batch never burns a credit for nothing).
-  const chargedRef = useRef(false);
   // Warn once if a non-quota persistence write fails (so it isn't silent).
   const persistWarnedRef = useRef(false);
   // The gallery pane, so a phone-layout generation can scroll the results
@@ -485,7 +481,12 @@ export default function Page() {
   // (including the new Generation, so Redo can follow it in the lightbox).
   async function generateOne(
     params: GenParams,
-  ): Promise<{ ok: boolean; error?: string; gen?: Generation }> {
+  ): Promise<{
+    ok: boolean;
+    error?: string;
+    gen?: Generation;
+    remaining?: number;
+  }> {
     try {
       const res = await fetch("/api/generate-logo", {
         method: "POST",
@@ -509,14 +510,11 @@ export default function Page() {
           createdAt,
         };
         setGenerations((prev) => [next, ...prev]);
-        // Charge the run's single free credit the moment its FIRST logo lands,
-        // not up front: closing the tab mid-batch then costs nothing. With
-        // auth on, the server is the ledger (refreshed after the run), so the
-        // local counter stays untouched.
-        if (!hasOwnKey && !chargedRef.current) {
-          chargedRef.current = true;
-          if (!auth.enabled) adjustCredits(-1);
-        }
+        // Each successful image costs one credit (charged on landing, so a
+        // failed variation never burns one). Account-less mode charges the
+        // local counter; with auth on the server ledger already spent it and
+        // reports the fresh balance on the response.
+        if (!hasOwnKey && !auth.enabled) adjustCredits(-1);
         const savePromise = saveLogo({
           id,
           companyName: params.companyName,
@@ -525,7 +523,12 @@ export default function Page() {
           blob,
         }).catch(onPersistError);
         savePromises.current.set(id, savePromise);
-        return { ok: true, gen: next };
+        return {
+          ok: true,
+          gen: next,
+          remaining:
+            typeof json.remaining === "number" ? json.remaining : undefined,
+        };
       }
       const text = res.headers.get("Content-Type")?.includes("text/plain")
         ? await res.text()
@@ -539,9 +542,10 @@ export default function Page() {
     }
   }
 
-  // A "run": fire N parallel generations (a set of variations). Costs 1 free
-  // credit per run regardless of N (charged on the first success). Returns the
-  // per-generation results so callers like Redo can follow the new logo.
+  // A "run": fire N parallel generations (a set of variations). Each
+  // successful logo costs 1 free credit, so a free run is capped at the
+  // balance. Returns the per-generation results so callers like Redo can
+  // follow the new logo.
   async function runBatch(
     params: GenParams,
     n: number,
@@ -554,8 +558,17 @@ export default function Page() {
       else setApiKeyOpen(true);
       return;
     }
+    // Free runs can't outspend the wallet: trim the set to the credits left
+    // instead of letting the server bounce the overflow as errors.
+    if (!hasOwnKey && n > effectiveCredits) {
+      n = Math.max(1, effectiveCredits);
+      toast({
+        title: `Making ${n} ${n === 1 ? "logo" : "logos"} this run`,
+        description:
+          "That's what your free credits cover. Add your own key for full sets.",
+      });
+    }
     runningRef.current = true;
-    chargedRef.current = false;
     try {
       setPendingCount(n);
       setLiveMessage(n > 1 ? `Generating ${n} logos…` : "Generating a logo…");
@@ -619,9 +632,17 @@ export default function Page() {
           description: "Some variations didn't come through. Vary for more.",
         });
       }
-      // With auth on, the server just wrote the fresh remaining-credits count
-      // to the user record; pull it so the caption stays truthful.
-      if (auth.enabled && auth.isSignedIn && !hasOwnKey) void auth.refresh();
+      // With auth on, each response carried the ledger balance after its own
+      // spend; the minimum is the final state (parallel responses land out of
+      // order). Failed variations were refunded server-side, so reconcile
+      // with a fresh read whenever anything failed.
+      if (auth.enabled && auth.isSignedIn && !hasOwnKey) {
+        const reported = results
+          .map((r) => r.remaining)
+          .filter((v): v is number => typeof v === "number");
+        if (reported.length) auth.noteRemaining(Math.min(...reported));
+        if (oks < n || !reported.length) void auth.refresh();
+      }
       return results;
     } finally {
       runningRef.current = false;
@@ -696,9 +717,18 @@ export default function Page() {
         blob,
       }).catch(onPersistError);
       savePromises.current.set(id, savePromise);
-      // Account-less mode charges the local counter; with auth on, edits are
-      // covered by the server's own per-user rate limit instead.
+      // An edit costs a credit like a generation. Account-less mode charges
+      // the local counter; with auth on the server ledger spent it and the
+      // response carries the fresh balance.
       if (!hasOwnKey && !auth.enabled) adjustCredits(-1);
+      if (
+        auth.enabled &&
+        auth.isSignedIn &&
+        !hasOwnKey &&
+        typeof json.remaining === "number"
+      ) {
+        auth.noteRemaining(json.remaining);
+      }
       setActiveGen(next); // keep the lightbox on the new result to iterate
       return true;
     } catch (err) {
@@ -1156,7 +1186,10 @@ export default function Page() {
               credits={effectiveCredits}
             />
             <ThemeToggle />
-            <AuthControls />
+            <AuthControls
+              hasOwnKey={hasOwnKey}
+              onManageKey={() => setApiKeyOpen(true)}
+            />
           </div>
         </header>
 
@@ -1466,18 +1499,27 @@ export default function Page() {
             </div>
 
             <p className="text-center text-xs text-muted-foreground">
-              <span
-                className={cn(
-                  // Amber = genuinely out of credits. "Sign in first" is an
-                  // invitation, not a warning, so it keeps the quiet tone.
-                  !hasOwnKey &&
-                    effectiveCredits <= 0 &&
-                    !(auth.enabled && !auth.isSignedIn) &&
-                    "text-amber-700 dark:text-amber-400",
-                )}
-              >
-                {creditCaption}
-              </span>
+              {auth.enabled && !auth.isSignedIn && !hasOwnKey ? (
+                // The invitation is the action: tapping it opens sign-in.
+                <button
+                  type="button"
+                  onClick={auth.openSignIn}
+                  className="font-medium text-foreground underline decoration-border underline-offset-2 transition-colors hover:decoration-foreground"
+                >
+                  {creditCaption}
+                </button>
+              ) : (
+                <span
+                  className={cn(
+                    // Amber = genuinely out of credits, a real warning tone.
+                    !hasOwnKey &&
+                      effectiveCredits <= 0 &&
+                      "text-amber-700 dark:text-amber-400",
+                  )}
+                >
+                  {creditCaption}
+                </span>
+              )}
               {!hasOwnKey && (
                 <>
                   {" · "}
@@ -1486,7 +1528,7 @@ export default function Page() {
                     onClick={() => setApiKeyOpen(true)}
                     className="font-medium text-foreground underline decoration-border underline-offset-2 transition-colors hover:decoration-foreground"
                   >
-                    {credits <= 0 ? "Add your key" : "Use your key"}
+                    {effectiveCredits <= 0 ? "Add your key" : "Use your key"}
                   </button>
                 </>
               )}

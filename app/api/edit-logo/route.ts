@@ -4,6 +4,7 @@ import { ipAddress } from "@vercel/functions";
 import { Ratelimit } from "@upstash/ratelimit";
 import { Redis } from "@upstash/redis";
 import { z } from "zod";
+import { FREE_CREDITS, creditsKey } from "@/app/lib/credits";
 
 /**
  * Image-to-image edit of an existing logo via FLUX.1-kontext. Powers the brand
@@ -46,8 +47,9 @@ export async function POST(req: Request) {
   // With Clerk configured, keyless (server-key) edits require a signed-in
   // user, the same friction as generations; BYOK works signed out.
   const clerkEnabled = !!process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
+  let user = null;
   if (clerkEnabled && !data.userAPIKey) {
-    const user = await currentUser();
+    user = await currentUser();
     if (!user) {
       return new Response(
         "Sign in to edit with free credits, or add your own Together AI key.",
@@ -71,23 +73,43 @@ export async function POST(req: Request) {
     });
   }
 
-  // Rate-limit anonymous, server-key edits per client IP so the shared key
-  // cannot be drained in a loop (the brand kit makes several edit calls, so the
-  // cap is generous). BYOK callers spend their own key, so they are not limited.
+  // Keyless edits spend real money too, so they draw from the same ledger as
+  // generations: a signed-in user's edit costs 1 free credit (atomic INCR,
+  // refunded below if the edit fails). Without Clerk, anonymous keyless edits
+  // keep the per-IP daily window so a loop can't drain the shared key.
+  let remaining: number | undefined;
+  let refundCredit: (() => Promise<void>) | undefined;
   if (hasLimiter && !data.userAPIKey) {
-    const ratelimit = new Ratelimit({
-      redis: Redis.fromEnv(),
-      limiter: Ratelimit.fixedWindow(40, "1 d"),
-      analytics: true,
-      prefix: "logocreator-edit",
-    });
-    const ip = ipAddress(req) || "anonymous";
-    const { success } = await ratelimit.limit(ip);
-    if (!success) {
-      return new Response(
-        "You've hit the free edit limit for now. Add your own Together AI key to keep going.",
-        { status: 429, headers: { "Content-Type": "text/plain" } },
-      );
+    const redis = Redis.fromEnv();
+    if (user) {
+      const key = creditsKey(user.id);
+      const used = await redis.incr(key);
+      if (used > FREE_CREDITS) {
+        await redis.decr(key).catch(() => {});
+        return new Response(
+          "You've used your free credits. Add your own Together AI key to keep editing.",
+          { status: 429, headers: { "Content-Type": "text/plain" } },
+        );
+      }
+      remaining = FREE_CREDITS - used;
+      refundCredit = async () => {
+        await redis.decr(key).catch(() => {});
+      };
+    } else {
+      const ratelimit = new Ratelimit({
+        redis,
+        limiter: Ratelimit.fixedWindow(40, "1 d"),
+        analytics: true,
+        prefix: "logocreator-edit",
+      });
+      const ip = ipAddress(req) || "anonymous";
+      const { success } = await ratelimit.limit(ip);
+      if (!success) {
+        return new Response(
+          "You've hit the free edit limit for now. Add your own Together AI key to keep going.",
+          { status: 429, headers: { "Content-Type": "text/plain" } },
+        );
+      }
     }
   }
 
@@ -111,8 +133,13 @@ export async function POST(req: Request) {
       response_format: "base64" as const,
     };
     const response = await client.images.generate(body);
-    return Response.json(response.data[0], { status: 200 });
+    return Response.json(
+      { ...response.data[0], ...(remaining !== undefined ? { remaining } : {}) },
+      { status: 200 },
+    );
   } catch (error) {
+    // The edit never materialized, so the credit it reserved goes back.
+    if (refundCredit) await refundCredit();
     const invalidApiKey = z
       .object({
         error: z.object({
