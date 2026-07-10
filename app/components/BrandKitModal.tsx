@@ -45,7 +45,11 @@ const CATEGORY_META: Record<string, { blurb: string; paid: boolean }> = {
     blurb: "Business card, website, phone & signage",
     paid: false,
   },
-  Mockups: { blurb: "T-shirt, mug, tote, business card, signage", paid: true },
+  Merch: {
+    blurb: "Printed on real photos: t-shirt, mug & tote",
+    paid: false,
+  },
+  Mockups: { blurb: "AI shots: business card & signage", paid: true },
 };
 
 const GROUP_ORDER = [
@@ -54,6 +58,7 @@ const GROUP_ORDER = [
   "Icons & favicons",
   "Web & social",
   "Product mockups",
+  "Merch",
   "Mockups",
 ];
 

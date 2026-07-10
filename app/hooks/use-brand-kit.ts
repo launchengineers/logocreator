@@ -216,13 +216,14 @@ export function useBrandKit(apiKey: string): BrandKitController {
       // janking the open.
       await new Promise<void>((r) => setTimeout(r, 0));
       if (!alive()) return;
-      setPreviews(
-        categoryPreviews(img, transparent, {
-          logoType: g.params.logoType,
-          companyName: g.companyName,
-          brandColor,
-        }),
-      );
+      // Async: the merch preview loads its plate photo before compositing.
+      const previews = await categoryPreviews(img, transparent, {
+        logoType: g.params.logoType,
+        companyName: g.companyName,
+        brandColor,
+      });
+      if (!alive()) return;
+      setPreviews(previews);
     } catch {
       // toDataUrl / loadImage / decode failure: surface it instead of leaving
       // the configure spinner hanging forever, and let the user retry.

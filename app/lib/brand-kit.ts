@@ -1111,11 +1111,11 @@ export function iconMark(
  * rendered from the user's own logo. Shown in the pre-build selector so people
  * see what each category looks like before choosing to spend on the AI ones.
  */
-export function categoryPreviews(
+export async function categoryPreviews(
   img: HTMLImageElement,
   transparent: HTMLCanvasElement,
   ctx: { logoType: string; companyName: string; brandColor: string },
-): Record<string, string> {
+): Promise<Record<string, string>> {
   const { logoType, companyName, brandColor } = ctx;
   const cutoutOk = transparentFraction(transparent) > 0.06;
   const transFull = cropToContent(transparent, 0.02);
@@ -1154,6 +1154,27 @@ export function categoryPreviews(
     c.getContext("2d")!.drawImage(big, 0, 0, W, H);
     return u(c);
   };
+  // Center-crop a square merch plate composite into the 4:3 preview tile.
+  const merchPreview = (sq: HTMLCanvasElement) => {
+    const c = document.createElement("canvas");
+    c.width = W;
+    c.height = H;
+    const srcH = (sq.width * H) / W;
+    c.getContext("2d")!.drawImage(
+      sq,
+      0,
+      (sq.height - srcH) / 2,
+      sq.width,
+      srcH,
+      0,
+      0,
+      W,
+      H,
+    );
+    return u(c);
+  };
+  const plan = merchPrintPlan(img, transFull, cutoutOk, lightInk);
+  const tee = MERCH_PLATES[0];
   return {
     "Logo variants": u(
       scaleOnto(
@@ -1190,6 +1211,13 @@ export function categoryPreviews(
         )
       : u(onSolid(full, W, H, "#ffffff", 0.42)),
     "Product mockups": scenePreview(businessCardScene(onLight, brandColor)),
+    Merch: merchPreview(
+      await merchComposite(
+        plan.logo,
+        plan.onDark ? tee.dark : tee.light,
+        plan.onDark,
+      ),
+    ),
     Mockups: u(onSolid(full, W, H, lightInk ? "#2a2a28" : "#d8d4cc", 0.34)),
   };
 }
@@ -1468,7 +1496,8 @@ export function deterministicAssetSpecs(
   ];
 
   const scenes = mockupScenes(img, transFull, cutoutOk, ctx);
-  return [...variants, ...icons, ...social, ...scenes];
+  const merch = merchMockups(img, transFull, cutoutOk, lightInk);
+  return [...variants, ...icons, ...social, ...scenes, ...merch];
 }
 
 // ── Product mockups (deterministic illustrated scenes) ──────────────────
@@ -1477,8 +1506,8 @@ export function deterministicAssetSpecs(
 // logo on a LIGHT surface (card, screen, panel, sign) so it reads whether or
 // not the background could be keyed out, while brand color carries the
 // surrounding elements. Deliberately limited to the print/digital scenes that
-// hold up as flat illustrations; merch (tee, tote, mug) is left to the
-// photorealistic AI "Mockups" so the kit never ships a weaker duplicate.
+// hold up as flat illustrations; merch (tee, tote, mug) uses the real photo
+// plates in merchMockups() so the kit never ships a weaker duplicate.
 
 type Drawable = HTMLImageElement | HTMLCanvasElement;
 
@@ -1739,6 +1768,235 @@ export function mockupScenes(
   ];
 }
 
+// ── Merch mockups (real photo plates, deterministic composites) ──────────
+// Photoreal blank-product photography shipped with the app (public/merch/*,
+// one light and one dark colorway per product, generated once with FLUX and
+// hand-picked). The print happens on-device: ink multiplies onto the light
+// plates and screens onto the dark ones, so fabric weave and ceramic shading
+// show through the artwork exactly like a real transfer. These replaced the
+// AI tee/tote/mug renders, which kept coming back looking fake; they're also
+// free and instant, so merch no longer costs AI credits.
+
+type MerchBox = { cx: number; cy: number; w: number; h: number };
+type MerchColorway = { src: string; box: MerchBox };
+type MerchPlate = {
+  name: string;
+  filename: string;
+  light: MerchColorway;
+  dark: MerchColorway;
+  /** Cylinder half-angle (radians): wraps the print around the mug. */
+  wrap?: number;
+};
+
+// Print boxes are fractions of the plate, hand-tuned against the photos.
+const MERCH_PLATES: MerchPlate[] = [
+  {
+    name: "T-shirt",
+    filename: "merch/tshirt.png",
+    light: {
+      src: "/merch/tee-light.webp",
+      box: { cx: 0.5, cy: 0.43, w: 0.24, h: 0.2 },
+    },
+    dark: {
+      src: "/merch/tee-dark.webp",
+      box: { cx: 0.5, cy: 0.44, w: 0.24, h: 0.2 },
+    },
+  },
+  {
+    name: "Coffee mug",
+    filename: "merch/mug.png",
+    light: {
+      src: "/merch/mug-light.webp",
+      box: { cx: 0.47, cy: 0.54, w: 0.28, h: 0.2 },
+    },
+    dark: {
+      src: "/merch/mug-dark.webp",
+      box: { cx: 0.48, cy: 0.53, w: 0.26, h: 0.2 },
+    },
+    wrap: 0.55,
+  },
+  {
+    name: "Tote bag",
+    filename: "merch/tote-bag.png",
+    light: {
+      src: "/merch/tote-light.webp",
+      box: { cx: 0.5, cy: 0.62, w: 0.26, h: 0.22 },
+    },
+    dark: {
+      src: "/merch/tote-dark.webp",
+      box: { cx: 0.5, cy: 0.64, w: 0.26, h: 0.22 },
+    },
+  },
+];
+
+/** Mean luma of the raster's four corners: the backdrop tone when there's no cutout. */
+function backdropLuma(img: HTMLImageElement): number {
+  const c = document.createElement("canvas");
+  c.width = 8;
+  c.height = 8;
+  const bctx = c.getContext("2d")!;
+  bctx.drawImage(img, 0, 0, 8, 8);
+  const d = bctx.getImageData(0, 0, 8, 8).data;
+  const at = (x: number, y: number) => {
+    const i = (y * 8 + x) * 4;
+    return (d[i] * 0.2126 + d[i + 1] * 0.7152 + d[i + 2] * 0.0722) / 255;
+  };
+  return (at(0, 0) + at(7, 0) + at(0, 7) + at(7, 7)) / 4;
+}
+
+/**
+ * Level the raster so its backdrop keys away under the print blend: scaled to
+ * pure white for multiply, floored to pure black for screen. Without this, a
+ * warm off-white (or near-black) background prints as a faint box on the
+ * product. Only needed when the background couldn't be cut out.
+ */
+function normalizeForPrint(
+  img: HTMLImageElement,
+  screenBlend: boolean,
+): HTMLCanvasElement {
+  const c = document.createElement("canvas");
+  const w = (c.width = img.naturalWidth || img.width);
+  const h = (c.height = img.naturalHeight || img.height);
+  const nctx = c.getContext("2d")!;
+  nctx.drawImage(img, 0, 0);
+  const data = nctx.getImageData(0, 0, w, h);
+  const px = data.data;
+  const corner = (x: number, y: number) => {
+    const i = (y * w + x) * 4;
+    return [px[i], px[i + 1], px[i + 2]];
+  };
+  const cs = [
+    corner(2, 2),
+    corner(w - 3, 2),
+    corner(2, h - 3),
+    corner(w - 3, h - 3),
+  ];
+  const bg = [0, 1, 2].map(
+    (ch) => cs.reduce((s, cc) => s + cc[ch], 0) / cs.length,
+  );
+  for (let i = 0; i < px.length; i += 4) {
+    for (let ch = 0; ch < 3; ch++) {
+      const v = px[i + ch];
+      px[i + ch] = screenBlend
+        ? Math.max(0, ((v - bg[ch]) * 255) / Math.max(1, 255 - bg[ch]))
+        : Math.min(255, (v * 255) / Math.max(8, bg[ch]));
+    }
+  }
+  nctx.putImageData(data, 0, 0);
+  return c;
+}
+
+/** Composite the logo onto one plate photo; returns the plate-sized canvas. */
+async function merchComposite(
+  logo: Drawable,
+  colorway: MerchColorway,
+  screenBlend: boolean,
+  wrap?: number,
+): Promise<HTMLCanvasElement> {
+  const photo = await loadImage(colorway.src);
+  const W = photo.naturalWidth || photo.width;
+  const H = photo.naturalHeight || photo.height;
+  const c = document.createElement("canvas");
+  c.width = W;
+  c.height = H;
+  const ctx = c.getContext("2d")!;
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(photo, 0, 0, W, H);
+
+  // Flatten the print into one buffer first, so warp and blend apply to a
+  // single bitmap instead of per-source-pixel surprises.
+  const box = colorway.box;
+  const bw = box.w * W;
+  const bh = box.h * H;
+  const sw = (logo as HTMLImageElement).naturalWidth || logo.width;
+  const sh = (logo as HTMLImageElement).naturalHeight || logo.height;
+  const sc = Math.min(bw / sw, bh / sh);
+  const dw = Math.max(1, Math.round(sw * sc));
+  const dh = Math.max(1, Math.round(sh * sc));
+  const buf = document.createElement("canvas");
+  buf.width = dw;
+  buf.height = dh;
+  const bctx = buf.getContext("2d")!;
+  bctx.imageSmoothingEnabled = true;
+  bctx.imageSmoothingQuality = "high";
+  bctx.drawImage(logo, 0, 0, dw, dh);
+
+  const cx = box.cx * W;
+  const cy = box.cy * H;
+  ctx.save();
+  // Screen keys a dark backdrop away and lets light ink sit on the dark
+  // products; multiply keys white away and soaks dark ink into the light
+  // ones. Either way the product's own texture shows through the print.
+  ctx.globalCompositeOperation = screenBlend ? "screen" : "multiply";
+  if (wrap) {
+    // Cylindrical wrap: vertical strips of the print land on the arc of the
+    // mug face, compressing toward the seams like a real wrapped transfer.
+    const R = dw / (2 * Math.sin(wrap));
+    const strips = 64;
+    for (let i = 0; i < strips; i++) {
+      const u0 = i / strips;
+      const u1 = (i + 1) / strips;
+      const mid = ((u0 + u1) / 2 - 0.5) * 2 * wrap;
+      const x0 = cx + R * Math.sin((u0 - 0.5) * 2 * wrap);
+      const x1 = cx + R * Math.sin((u1 - 0.5) * 2 * wrap);
+      // Columns tip away from the camera near the seams; a slight fade sells
+      // the turn without geometry the photo doesn't have.
+      ctx.globalAlpha = 0.95 * (0.72 + 0.28 * Math.cos(mid));
+      ctx.drawImage(
+        buf,
+        (u0 * dw) | 0,
+        0,
+        Math.max(1, dw / strips),
+        dh,
+        x0,
+        cy - dh / 2,
+        Math.max(1, x1 - x0 + 0.7),
+        dh,
+      );
+    }
+  } else {
+    ctx.globalAlpha = 0.95;
+    ctx.drawImage(buf, cx - dw / 2, cy - dh / 2, dw, dh);
+  }
+  ctx.restore();
+  return c;
+}
+
+/** Which artwork prints, and on which colorway. Shared by assets + preview. */
+function merchPrintPlan(
+  img: HTMLImageElement,
+  transFull: HTMLCanvasElement,
+  cutoutOk: boolean,
+  lightInk: boolean,
+): { logo: Drawable; onDark: boolean } {
+  // Light artwork goes on the dark products (a white logo on a white tee
+  // reads as nothing). Without a cutout, judge by the raster's own backdrop:
+  // a dark backdrop means light artwork, so it lands on the dark colorway
+  // where screen-blending keys that backdrop away.
+  const onDark = cutoutOk ? lightInk : backdropLuma(img) < 0.5;
+  const logo: Drawable = cutoutOk ? transFull : normalizeForPrint(img, onDark);
+  return { logo, onDark };
+}
+
+export function merchMockups(
+  img: HTMLImageElement,
+  transFull: HTMLCanvasElement,
+  cutoutOk: boolean,
+  lightInk: boolean,
+): AssetSpec[] {
+  const { logo, onDark } = merchPrintPlan(img, transFull, cutoutOk, lightInk);
+  return MERCH_PLATES.map((p) => ({
+    group: "Merch",
+    name: p.name,
+    filename: p.filename,
+    build: async () =>
+      canvasToBlob(
+        await merchComposite(logo, onDark ? p.dark : p.light, onDark, p.wrap),
+      ),
+  }));
+}
+
 export function paletteFiles(palette: string[]): { css: string; json: string } {
   const css =
     ":root {\n" +
@@ -1757,7 +2015,7 @@ export function paletteFiles(palette: string[]): { css: string; json: string } {
 
 export function readme(companyName: string, palette: string[]): string {
   const name = companyName || "Your logo";
-  return `${name}: brand kit\nGenerated with LogoCreator.\n\nFOLDERS\n  variants/   original (1024) + transparent, monochrome (black/white), on-light, on-dark + logo.svg (auto-traced vector)\n  icons/      icon + app icon, and a full favicon set (16/32/48/180/192/512)\n  social/     avatar, Open Graph card, social banner, repeating pattern\n  scenes/     product mockups (on-device): business card, website, phone, signage\n  mockups/    AI product shots: t-shirt, tote, mug, business card, signage\n  brand-colors.css / .json with the extracted palette: ${palette.join(", ")}\n  style-guide.pdf  printable brand guidelines: logo, clear space, color, type\n\nQUICK USE\n  - Favicon:   icons/favicon-32.png, favicon-16.png\n  - iOS:       icons/apple-touch-icon-180.png\n  - PWA/app:   icons/icon-192.png, icon-512.png, app-icon.png\n  - Link card: social/og-1200x630.png\n  - Header:    social/banner-1500x500.png\n  - Merch:     mockups/ (ready-to-share product visuals)\n`;
+  return `${name}: brand kit\nGenerated with LogoCreator.\n\nFOLDERS\n  variants/   original (1024) + transparent, monochrome (black/white), on-light, on-dark + logo.svg (auto-traced vector)\n  icons/      icon + app icon, and a full favicon set (16/32/48/180/192/512)\n  social/     avatar, Open Graph card, social banner, repeating pattern\n  scenes/     product mockups (on-device): business card, website, phone, signage\n  merch/      your logo printed on real product photos: t-shirt, mug, tote\n  mockups/    AI product shots: business card, signage\n  brand-colors.css / .json with the extracted palette: ${palette.join(", ")}\n  style-guide.pdf  printable brand guidelines: logo, clear space, color, type\n\nQUICK USE\n  - Favicon:   icons/favicon-32.png, favicon-16.png\n  - iOS:       icons/apple-touch-icon-180.png\n  - PWA/app:   icons/icon-192.png, icon-512.png, app-icon.png\n  - Link card: social/og-1200x630.png\n  - Header:    social/banner-1500x500.png\n  - Merch:     merch/ (ready-to-share product visuals)\n`;
 }
 
 export async function zipFiles(
@@ -1868,11 +2126,10 @@ export function aiAssetSpecs(
     : "a clean, flat, plain white background";
   const LOCK = `Keep the exact same colors, shapes and letterforms. Do not redraw or restyle anything. Output the logo on ${lockSurface} with generous even padding: no drop shadow, no mockup, no surrounding object or frame, no watermark, and add no extra text, labels or tagline.`;
 
-  // Mockup product surfaces flip dark for a light logo so the print is visible
-  // on the merch (a white logo on a white tee/mug reads as nothing).
-  const tee = lightInk ? "charcoal heather" : "heather-grey";
-  const tote = lightInk ? "washed-black" : "natural beige";
-  const mug = lightInk ? "matte black" : "matte white";
+  // Mockup product surfaces flip dark for a light logo so the print is
+  // visible (a white logo on a bright white card reads as nothing). Merch
+  // (tee/tote/mug) is no longer AI: those are deterministic photo-plate
+  // composites in merchMockups().
   const card = lightInk ? "matte charcoal" : "bright white";
   const wall = lightInk ? "dark matte charcoal" : "light matte concrete";
 
@@ -1946,21 +2203,6 @@ export function aiAssetSpecs(
   }
 
   const mockups = [
-    mk(
-      "T-shirt",
-      "mockups/tshirt.png",
-      `Photorealistic product photo of a folded ${tee} cotton t-shirt on a clean light studio background with soft shadows. Print the provided logo SMALL on the upper-left chest area, occupying only about 12% of the shirt width, a subtle left-chest print like a real branded tee.`,
-    ),
-    mk(
-      "Tote bag",
-      "mockups/tote-bag.png",
-      `Photorealistic product photo of a ${tote} cotton canvas tote bag hanging against a soft neutral wall in gentle daylight. Print the provided logo centered on the tote at a tasteful medium size (about 35% of the bag width).`,
-    ),
-    mk(
-      "Coffee mug",
-      "mockups/mug.png",
-      `Photorealistic product photo of a ${mug} ceramic coffee mug on a soft neutral surface with studio lighting. Print the provided logo centered on the mug face at a moderate size (about 45% of the visible face).`,
-    ),
     mk(
       "Business card",
       "mockups/business-card.png",
