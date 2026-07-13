@@ -239,8 +239,10 @@ function XLogo({ className }: { className?: string }) {
 
 // One chrome icon-button treatment, shared by the header row and the footer
 // social row so they read as siblings (same size, border and hover).
+// Footer chrome is quieter than the header's controls, so these run ~8px
+// smaller; the invisible before-inset keeps the touch target comfortable.
 const socialLink =
-  "flex size-10 items-center justify-center rounded-full border border-border/70 text-muted-foreground transition-colors hover:border-border hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background sm:size-9";
+  "relative flex size-8 items-center justify-center rounded-full border border-border/70 text-muted-foreground transition-colors before:absolute before:-inset-1.5 before:content-[''] hover:border-border hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background sm:size-7";
 
 export default function Page() {
   // Inputs
@@ -283,7 +285,9 @@ export default function Page() {
   // Generation state. A "run" fires N parallel requests (a set of variations);
   // pendingCount is how many are still in flight (drives the skeletons).
   const [pendingCount, setPendingCount] = useState(0);
-  const [variationCount, setVariationCount] = useState(4);
+  // One variation by default: the fastest first taste, and a signed-in free
+  // user's 2 credits cover two distinct runs instead of one clamped batch.
+  const [variationCount, setVariationCount] = useState(1);
   const isGenerating = pendingCount > 0;
   // Screen-reader announcements for async results (aria-live region).
   const [liveMessage, setLiveMessage] = useState("");
@@ -1565,7 +1569,7 @@ export default function Page() {
                 aria-label="What's this?"
                 className={socialLink}
               >
-                <HelpCircle className="size-[1.05rem]" />
+                <HelpCircle className="size-3.5" />
               </button>
             </Tip>
             <Tip label="GitHub">
@@ -1576,7 +1580,7 @@ export default function Page() {
                 aria-label="GitHub"
                 className={socialLink}
               >
-                <Github className="size-[1.05rem]" />
+                <Github className="size-3.5" />
               </a>
             </Tip>
             <Tip label="X (Twitter)">
@@ -1587,7 +1591,7 @@ export default function Page() {
                 aria-label="X (Twitter)"
                 className={socialLink}
               >
-                <XLogo className="size-3.5" />
+                <XLogo className="size-3" />
               </a>
             </Tip>
           </div>
