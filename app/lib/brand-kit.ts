@@ -1,7 +1,7 @@
 /**
  * Brand-kit primitives. Deterministic, client-side (canvas) asset builders +
  * palette extraction + zip packaging. The modal orchestrates these so it can
- * reveal each asset live; AI variants (FLUX.1-kontext) are added separately.
+ * reveal each asset live; AI variants (FLUX.2-pro edits) are added separately.
  */
 
 export function loadImage(src: string): Promise<HTMLImageElement> {
@@ -2052,7 +2052,7 @@ export function slugify(name: string): string {
   );
 }
 
-/** Image-to-image edit via /api/edit-logo (FLUX.1-kontext). Returns a PNG blob. */
+/** Image-to-image edit via /api/edit-logo (FLUX.2-pro). Returns a PNG blob. */
 export async function editLogo(
   apiKey: string,
   image: string,
@@ -2060,7 +2060,7 @@ export async function editLogo(
   width: number,
   height: number,
 ): Promise<Blob> {
-  // Together's kontext model is occasionally flaky (500/429): retry transient
+  // Together's edit model is occasionally flaky (500/429): retry transient
   // failures a couple of times with backoff so a single hiccup doesn't leave a
   // permanently-failed brand-kit tile. Each attempt has its own timeout.
   let lastErr: unknown;
@@ -2100,7 +2100,7 @@ export async function editLogo(
 }
 
 /**
- * AI product mockups (FLUX.1-kontext). Only real-world product shots are AI;
+ * AI product mockups (FLUX.2-pro edits). Only real-world product shots are AI;
  * everything else (variants, icons, social, backgrounds, patterns) is built
  * deterministically on canvas for perfect logo fidelity. Each prompt makes the
  * *object* the subject and the logo a small/medium applied print, with explicit

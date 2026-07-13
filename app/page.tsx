@@ -61,7 +61,7 @@ import {
 } from "./lib/history-db";
 import { FREE_CREDITS } from "./lib/credits";
 
-// Image edits run through Together's FLUX.1-kontext model, which is occasionally
+// Image edits run through Together's image-edit model, which is occasionally
 // flaky (intermittent 500/429 or a slow response). Retry transient failures a
 // couple of times with a short backoff and a per-attempt timeout, so a single
 // hiccup never surfaces to the user as a hard error. Non-retryable client errors
@@ -672,7 +672,7 @@ export default function Page() {
     }
   }
 
-  // "Keep editing": image-to-image edit of an existing logo via kontext. The
+  // "Keep editing": image-to-image edit of an existing logo via FLUX.2-pro. The
   // result becomes a new logo (added to the gallery + history); the lightbox
   // updates in place so you can keep iterating.
   // Returns whether the edit succeeded, so the composer can keep the user's
@@ -698,7 +698,7 @@ export default function Page() {
         userAPIKey,
         image: sourceImage,
         // A light preservation frame: without it, a vague "make it bolder" can
-        // make kontext redraw the whole mark, shift colors, or invent text.
+        // make the model redraw the whole mark, shift colors, or invent text.
         // Kept short so the user's intent stays dominant; the raw text is what
         // gets stored on the result's params.
         prompt: `${text}. Keep the same overall logo identity, colors and letterforms unless this instruction explicitly changes them. Output on a clean flat background and add no extra text.`,

@@ -44,7 +44,7 @@ export type BrandKitItem = {
 
 export type BrandKitPhase = "configure" | "building" | "done";
 
-// How many AI (FLUX.1-kontext) renders run at once.
+// How many AI (image-edit) renders run at once.
 const AI_CONCURRENCY = 4;
 // Groups that cost real money (everything else is free canvas work).
 const AI_GROUPS = new Set(["Mockups", "Logo lockups"]);

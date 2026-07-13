@@ -6,7 +6,6 @@ import {
   Check,
   Download,
   FileText,
-  ImageIcon,
   Loader2,
   Maximize2,
   Package,
@@ -129,7 +128,7 @@ export default function BrandKitModal({
   );
   const nowRendering = visibleItems.find((i) => i.status === "building")?.name;
   const pct = total > 0 ? (doneCount / total) * 100 : 0;
-  // Only the AI renders (mockups + kontext lockups) cost credits; the count
+  // Only the AI renders (mockups + lockups) cost credits; the count
   // varies by logo type, so derive the estimate from the actual asset list.
   const aiCount = visibleItems.filter(
     (i) => i.group === "Mockups" || i.group === "Logo lockups",
@@ -549,8 +548,25 @@ function ConfigureView({
               </div>
             </div>
           ) : (
-            <div className="flex h-48 items-center justify-center gap-2 text-sm text-muted-foreground">
-              <Loader2 className="size-4 animate-spin" /> Preparing your assets…
+            // Skeleton grid in the FINAL layout, so the modal opens at its true
+            // size with structure instead of a small spinner that then jumps to
+            // the full grid while the heavy canvas prep runs.
+            <div
+              aria-label="Preparing your assets"
+              className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3"
+            >
+              {Array.from({ length: 6 }).map((_, i) => (
+                <div
+                  key={i}
+                  className="flex flex-col overflow-hidden rounded-xl border border-border bg-card"
+                >
+                  <div className="aspect-[16/10] w-full animate-pulse bg-secondary/60" />
+                  <div className="flex flex-col gap-2 p-3">
+                    <div className="h-3.5 w-1/2 animate-pulse rounded bg-secondary/60" />
+                    <div className="h-2.5 w-4/5 animate-pulse rounded bg-secondary/50" />
+                  </div>
+                </div>
+              ))}
             </div>
           )
         ) : (
@@ -575,14 +591,15 @@ function ConfigureView({
                     {cat.preview ? (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img
+                        key={cat.preview}
                         src={cat.preview}
                         alt=""
-                        className="h-full w-full object-cover transition-transform duration-300 group-hover/cat:scale-[1.04]"
+                        className="h-full w-full animate-in object-cover fade-in duration-300 transition-transform group-hover/cat:scale-[1.04]"
                       />
                     ) : (
-                      <div className="flex h-full items-center justify-center">
-                        <ImageIcon className="size-5 text-muted-foreground/40" />
-                      </div>
+                      // The previews render just after the cards; a matching
+                      // shimmer holds the space so nothing pops or reflows.
+                      <div className="h-full w-full animate-pulse bg-secondary/60" />
                     )}
                     {/* Selection check */}
                     <span

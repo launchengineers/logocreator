@@ -20,11 +20,11 @@ export function pricePerLogo(logoType: string | undefined): number {
     : PRICE_PER_LOGO;
 }
 
-// FLUX.1-kontext ≈ $0.04 per megapixel (~1 MP per brand-kit asset). The brand
-// kit's only metered work is the AI renders: 5 product mockups, plus up to 4
-// kontext logo lockups for combination marks. The modal derives the live
-// estimate from the actual asset list; everything else is free canvas work.
-export const PRICE_PER_AI_ASSET = 0.04;
+// FLUX.2-pro edits ≈ $0.03 per image. The brand kit's only metered work is the
+// AI renders: 2 product mockups (business card + signage), plus up to 4 logo
+// lockups for combination marks. The modal derives the live estimate from the
+// actual asset list; everything else is free canvas work.
+export const PRICE_PER_AI_ASSET = 0.03;
 
 /** Format a USD amount with sensible precision (e.g. 0.03 → "$0.03"). */
 export function formatUsd(amount: number): string {

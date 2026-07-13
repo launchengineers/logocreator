@@ -7,9 +7,10 @@ import { z } from "zod";
 import { FREE_CREDITS, creditsKey } from "@/app/lib/credits";
 
 /**
- * Image-to-image edit of an existing logo via FLUX.1-kontext. Powers the brand
- * kit's AI variants and the "keep editing" iterate flow. Uses the user's own
- * key when present, else the server key (so free-credit users can edit too).
+ * Image-to-image edit of an existing logo via FLUX.2-pro (image_url input).
+ * Powers the brand kit's AI variants and the "keep editing" iterate flow. Uses
+ * the user's own key when present, else the server key (so free-credit users
+ * can edit too).
  */
 export async function POST(req: Request) {
   const parsed = z
@@ -125,7 +126,12 @@ export async function POST(req: Request) {
 
   try {
     const body = {
-      model: "black-forest-labs/FLUX.1-kontext-pro",
+      // FLUX.2-pro with image_url: bake-off verified 2026-07-13 that it
+      // actually APPLIES instructed edits (all-caps text, recolors, lockup
+      // re-arrangements, non-square sizes) while FLUX.1-kontext pro AND max
+      // returned the input essentially unchanged on Together. Cheaper too
+      // ($0.03 vs $0.04 per image).
+      model: "black-forest-labs/FLUX.2-pro",
       prompt: data.prompt,
       image_url: data.image,
       width: Math.min(1536, Math.max(64, Math.round(data.width ?? 1024))),

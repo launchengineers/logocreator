@@ -36,7 +36,7 @@ function typeLabel(key: string) {
   return LOGO_TYPES.find((t) => t.key === key)?.label ?? key;
 }
 
-// One-tap iterations, curated so each reads as a clean kontext instruction.
+// One-tap iterations, curated so each reads as a clean edit instruction.
 const QUICK_EDITS: { label: string; prompt: string }[] = [
   { label: "Bolder", prompt: "make the design bolder and a little thicker" },
   { label: "Simpler", prompt: "simplify the design: cleaner and more minimal" },
