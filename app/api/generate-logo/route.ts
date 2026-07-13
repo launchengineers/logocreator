@@ -274,6 +274,24 @@ export async function POST(req: Request) {
 
   ${textClause} ${colorClause} Centered, balanced composition with crisp, clean edges on a solid, uncluttered background. Professional and instantly recognizable, scalable from favicon to signage.${data.referenceDescription ? ` Take visual inspiration from this reference's composition, shapes and overall feel, but design an original mark rather than a copy: ${data.referenceDescription}.` : ""}${data.additionalInfo ? ` Additional direction: ${data.additionalInfo}.` : ""}`;
 
+  // Caller-side problems fail on ANY model, so they must surface as-is
+  // instead of triggering a pointless fallback attempt.
+  const isCallerError = (e: unknown) =>
+    z
+      .object({
+        error: z.object({
+          error: z.object({
+            code: z.literal("invalid_api_key").optional(),
+            type: z.literal("request_blocked").optional(),
+          }),
+        }),
+      })
+      .safeParse(e).success &&
+    ((e as { error: { error: { code?: string; type?: string } } }).error.error
+      .code === "invalid_api_key" ||
+      (e as { error: { error: { code?: string; type?: string } } }).error.error
+        .type === "request_blocked");
+
   try {
     // Text-bearing types (wordmark / monogram / emblem / icon-name) embed the
     // company name letter-for-letter; Gemini Flash Image renders lettering
@@ -281,6 +299,9 @@ export async function POST(req: Request) {
     // than Ideogram did, at roughly half Ideogram's latency (picked in the
     // 2026-07-10 side-by-side shootout). Keep FLUX.2-pro for text-free marks
     // (icon / abstract), where it still wins on polish.
+    // Probed on Together 2026-07-13: flash-image-3.1 is SQUARE-ONLY
+    // (512/1024/2048/4096), rejects image_url input, returns JPEG bytes, and
+    // rate-limits bursts aggressively; the guards below exist for that.
     const body = {
       prompt,
       model: hasText ? "google/flash-image-3.1" : "black-forest-labs/FLUX.2-pro",
@@ -292,7 +313,35 @@ export async function POST(req: Request) {
       // `steps`) on Together; the Google model gets none.
       ...(hasText ? {} : { guidance: 7 }),
     };
-    const response = await client.images.generate(body);
+    let response: Awaited<ReturnType<typeof client.images.generate>> | null =
+      null;
+    try {
+      response = await client.images.generate(body);
+    } catch (primaryError) {
+      // FLUX requests already target the backstop model: nothing to fall
+      // back to, so let the outer handler classify the error.
+      if (!hasText || isCallerError(primaryError)) throw primaryError;
+      // Gemini burst rate-limits judge a short window, so one spaced retry
+      // usually clears a 429 (its rejections are near-instant, so this stays
+      // well inside the edge time budget).
+      if ((primaryError as { status?: number })?.status === 429) {
+        await new Promise((r) => setTimeout(r, 1200 + Math.random() * 800));
+        try {
+          response = await client.images.generate(body);
+        } catch {
+          /* fall through to the FLUX backstop */
+        }
+      }
+      // Last resort for a text logo: FLUX.2-pro. Weaker lettering than
+      // Gemini, but a logo beats an error mid-batch.
+      if (!response) {
+        response = await client.images.generate({
+          ...body,
+          model: "black-forest-labs/FLUX.2-pro",
+          guidance: 7,
+        });
+      }
+    }
     // `remaining` rides along so the client can update its credits caption
     // without a second round-trip (undefined for BYOK / unlimited modes).
     return Response.json(

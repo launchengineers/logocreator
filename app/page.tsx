@@ -606,9 +606,14 @@ export default function Page() {
 
       const results = await Promise.all(
         Array.from({ length: n }, (_, i) =>
-          generateOne(paramsFor(i)).finally(() =>
-            setPendingCount((c) => Math.max(0, c - 1)),
-          ),
+          (async () => {
+            // Stagger the burst: the Gemini image model rate-limits on short
+            // windows, so simultaneous variation requests can 429. A few
+            // hundred ms between starts is invisible next to a ~12s render
+            // and keeps a full set from tripping it.
+            if (i) await new Promise((r) => setTimeout(r, i * 400));
+            return generateOne(paramsFor(i));
+          })().finally(() => setPendingCount((c) => Math.max(0, c - 1))),
         ),
       );
       // Safety net: the run is over, so no skeleton can be left stuck.
