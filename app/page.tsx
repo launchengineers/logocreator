@@ -469,6 +469,9 @@ export default function Page() {
     // lightbox close is invisible, so the swap reads as one smooth step.
     if (brandKit.savedKitIds.has(gen.id) || userAPIKey.trim()) {
       brandKit.start(gen);
+    } else if (auth.enabled && !auth.isSignedIn) {
+      // Keys are an account feature: signing in comes first.
+      setWelcomeOpen(true);
     } else {
       setPendingBrandKitGen(gen);
       setApiKeyOpen(true);
@@ -1162,30 +1165,38 @@ export default function Page() {
         <header className="area-header flex items-center justify-between gap-2 border-b border-border/60 px-5 py-4 md:border-b-0 md:border-r">
           <Logo />
           <div className="flex items-center gap-1.5">
-            <Tip label="Logo history" side="bottom">
-              <button
-                type="button"
-                onClick={() => setHistoryOpen(true)}
-                aria-label="Logo history"
-                className="flex size-9 items-center justify-center rounded-full border border-border/70 text-muted-foreground transition-colors hover:border-border hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-              >
-                <History className="size-[1.05rem]" />
-              </button>
-            </Tip>
-            <ApiKeyDialog
-              open={apiKeyOpen}
-              onOpenChange={(o) => {
-                setApiKeyOpen(o);
-                // Closing without saving abandons the "brand kit needs a key"
-                // intent; otherwise adding a key later (for any reason) would
-                // surprise-launch a kit for that stale logo.
-                if (!o) setPendingBrandKitGen(null);
-              }}
-              apiKey={userAPIKey}
-              onSave={handleApiKeySave}
-              credits={effectiveCredits}
-            />
-            <ThemeToggle />
+            {/* Signed out with auth on, the header holds exactly one action:
+                the sign-in CTA. History and the API key are account things,
+                so they appear once inside; the theme picker lives in the
+                account menu then (header version is account-less only). */}
+            {(!auth.enabled || auth.isSignedIn) && (
+              <>
+                <Tip label="Logo history" side="bottom">
+                  <button
+                    type="button"
+                    onClick={() => setHistoryOpen(true)}
+                    aria-label="Logo history"
+                    className="flex size-9 items-center justify-center rounded-full border border-border/70 text-muted-foreground transition-colors hover:border-border hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                  >
+                    <History className="size-[1.05rem]" />
+                  </button>
+                </Tip>
+                <ApiKeyDialog
+                  open={apiKeyOpen}
+                  onOpenChange={(o) => {
+                    setApiKeyOpen(o);
+                    // Closing without saving abandons the "brand kit needs a
+                    // key" intent; otherwise adding a key later (for any
+                    // reason) would surprise-launch a kit for that stale logo.
+                    if (!o) setPendingBrandKitGen(null);
+                  }}
+                  apiKey={userAPIKey}
+                  onSave={handleApiKeySave}
+                  credits={effectiveCredits}
+                />
+              </>
+            )}
+            {!auth.enabled && <ThemeToggle />}
             <AuthControls
               hasOwnKey={hasOwnKey}
               onManageKey={() => setApiKeyOpen(true)}
@@ -1520,7 +1531,9 @@ export default function Page() {
                   {creditCaption}
                 </span>
               )}
-              {!hasOwnKey && (
+              {/* BYOK is signed-in-only when auth is on, so the side link
+                  hides for visitors: their one path is signing in. */}
+              {!hasOwnKey && (!auth.enabled || auth.isSignedIn) && (
                 <>
                   {" · "}
                   <button

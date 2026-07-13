@@ -11,7 +11,15 @@ import {
 import { ClerkProvider, useClerk, useUser } from "@clerk/nextjs";
 import { dark } from "@clerk/themes";
 import { useTheme } from "next-themes";
-import { KeyRound, LogIn, LogOut, Settings2 } from "lucide-react";
+import {
+  KeyRound,
+  LogIn,
+  LogOut,
+  Monitor,
+  Moon,
+  Settings2,
+  Sun,
+} from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -216,6 +224,48 @@ function CreditPips({ left }: { left: number }) {
  * when signed in. Renders nothing in account-less mode, so the header is
  * unchanged without Clerk keys.
  */
+/**
+ * Theme picker row for the account menu (the header toggle moves in here when
+ * auth is on, freeing that slot for the sign-in CTA). Plain buttons in a
+ * non-item row, so picking a theme doesn't dismiss the menu.
+ */
+function ThemeRow() {
+  const { theme, setTheme } = useTheme();
+  const options = [
+    { value: "light", label: "Light theme", Icon: Sun },
+    { value: "dark", label: "Dark theme", Icon: Moon },
+    { value: "system", label: "Match system theme", Icon: Monitor },
+  ] as const;
+  return (
+    <div className="flex items-center justify-between gap-2 px-2.5 py-2">
+      <span className="text-sm text-muted-foreground">Theme</span>
+      <div
+        role="radiogroup"
+        aria-label="Theme"
+        className="flex items-center gap-0.5 rounded-lg border border-border/70 bg-secondary/50 p-0.5"
+      >
+        {options.map(({ value, label, Icon }) => (
+          <button
+            key={value}
+            type="button"
+            role="radio"
+            aria-checked={(theme ?? "system") === value}
+            aria-label={label}
+            onClick={() => setTheme(value)}
+            className={
+              (theme ?? "system") === value
+                ? "flex size-7 items-center justify-center rounded-md bg-background text-foreground shadow-sm"
+                : "flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:text-foreground"
+            }
+          >
+            <Icon className="size-3.5" />
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export function AuthControls({
   hasOwnKey,
   onManageKey,
@@ -232,13 +282,15 @@ export function AuthControls({
     return <span aria-hidden className="size-10 sm:size-9" />;
   }
   if (!auth.isSignedIn) {
+    // The header's one action while signed out, so it reads as the CTA it is
+    // (primary fill, never wraps: sign-in is the door to everything else).
     return (
       <button
         type="button"
         onClick={auth.openSignIn}
-        className="flex h-10 items-center gap-1.5 rounded-full border border-border/70 px-3.5 text-[0.8125rem] font-semibold text-foreground transition-colors hover:border-border hover:bg-secondary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background sm:h-9"
+        className="flex h-10 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full bg-primary px-4 text-[0.8125rem] font-bold text-primary-foreground transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background sm:h-9"
       >
-        <LogIn className="size-3.5" />
+        <LogIn className="size-3.5 shrink-0" />
         Sign in
       </button>
     );
@@ -299,6 +351,8 @@ export function AuthControls({
           <Settings2 className="size-4 text-muted-foreground" />
           Manage account
         </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <ThemeRow />
         <DropdownMenuSeparator />
         <DropdownMenuItem
           onSelect={() => {

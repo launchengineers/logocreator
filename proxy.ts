@@ -3,10 +3,9 @@ import { geolocation } from "@vercel/functions";
 import { NextResponse, NextFetchEvent } from "next/server";
 import type { NextRequest } from "next/server";
 
-export default async function middleware(
-  req: NextRequest,
-  evt: NextFetchEvent,
-) {
+// Next 16 renamed the "middleware" file convention to "proxy": same runtime
+// and matcher semantics, minus the deprecation warning at boot.
+export default async function proxy(req: NextRequest, evt: NextFetchEvent) {
   // `req.geo` was removed from NextRequest in Next 15; read it from the Vercel
   // edge geolocation helper instead (country is undefined off-Vercel, fine here).
   const { country } = geolocation(req);
