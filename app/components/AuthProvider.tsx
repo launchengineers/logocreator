@@ -237,7 +237,7 @@ function ThemeRow() {
     { value: "system", label: "Match system theme", Icon: Monitor },
   ] as const;
   return (
-    <div className="flex items-center justify-between gap-2 px-2.5 py-2">
+    <div className="flex h-11 items-center justify-between gap-2 px-2.5">
       <span className="text-sm text-muted-foreground">Theme</span>
       <div
         role="radiogroup"
@@ -329,12 +329,12 @@ export function AuthControls({
         </div>
         <DropdownMenuSeparator />
         {hasOwnKey ? (
-          <div className="flex items-center justify-between gap-2 px-2.5 py-2">
+          <div className="flex h-11 items-center justify-between gap-2 px-2.5">
             <span className="text-sm text-muted-foreground">Generations</span>
             <span className="text-sm font-semibold">Your key · unlimited</span>
           </div>
         ) : (
-          <div className="flex items-center justify-between gap-2 px-2.5 py-2">
+          <div className="flex h-11 items-center justify-between gap-2 px-2.5">
             <span className="text-sm text-muted-foreground">Free credits</span>
             <span className="flex items-center gap-2 text-sm font-semibold">
               <CreditPips left={left} />

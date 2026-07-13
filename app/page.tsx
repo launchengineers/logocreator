@@ -807,8 +807,20 @@ export default function Page() {
     );
   }
 
-  // Seed the whole form from a one-tap starter preset.
+  // Seed the whole form from a one-tap starter preset. Tapping the active
+  // preset again toggles it off, resetting the fields it seeded back to their
+  // defaults so a preset can be cleared as easily as it was applied.
   function applyPreset(p: StarterPreset) {
+    if (activePreset === p.id) {
+      setLogoType(LOGO_TYPES[0].key as string);
+      setSelectedStyle(logoStyles[0].name);
+      setPrimaryColor(AUTO_COLOR);
+      setBackgroundColor(AUTO_COLOR);
+      setDetailLevel("Balanced");
+      setAdditionalInfo("");
+      setActivePreset(null);
+      return;
+    }
     setLogoType(p.logoType);
     setSelectedStyle(p.style);
     setPrimaryColor(p.primaryColor);
