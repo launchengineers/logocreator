@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { ArrowRight, Sparkles } from "lucide-react";
 import {
   Dialog,
@@ -52,6 +53,11 @@ export default function WelcomeModal({
     if (open) setDraft(apiKey);
   }, [open, apiKey]);
 
+  // Non-modal Radix dialogs render no overlay, so we supply the dim backdrop
+  // ourselves (portaled to the body, below the panel). Client-only.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+
   function start() {
     const k = draft.trim();
     // Same light shape check as the key dialog: a pasted fragment shouldn't
@@ -70,8 +76,34 @@ export default function WelcomeModal({
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl gap-0 overflow-hidden rounded-2xl border-0 p-0 ring-1 ring-border sm:rounded-2xl">
+    // Non-modal on purpose: a modal Radix dialog disables pointer events
+    // everywhere outside its own content, which makes Clerk's sign-in modal
+    // (opened on top) inert until ours is dismissed — the reported "have to
+    // click twice" bug. Non-modal keeps Clerk fully clickable on the first
+    // press; we just stop OUR dialog from closing when that press lands on
+    // Clerk (below), so it waits quietly behind Clerk's backdrop.
+    <Dialog open={open} onOpenChange={onOpenChange} modal={false}>
+      {mounted &&
+        open &&
+        createPortal(
+          <div
+            aria-hidden
+            onClick={() => onOpenChange(false)}
+            className="fixed inset-0 z-40 bg-black/80 data-[state=open]:animate-in data-[state=open]:fade-in-0"
+            data-state="open"
+          />,
+          document.body,
+        )}
+      <DialogContent
+        // Don't grab focus on open, and never auto-close from an outside
+        // interaction. When Clerk's sign-in modal opens over this non-modal
+        // dialog it takes focus, which would otherwise fire an outside-focus
+        // close and dismiss this dialog mid-open, taking Clerk down with it.
+        // Explicit dismissal still works: the backdrop, the X, "Skip", Escape.
+        onOpenAutoFocus={(e) => e.preventDefault()}
+        onInteractOutside={(e) => e.preventDefault()}
+        className="max-w-3xl gap-0 overflow-hidden rounded-2xl border-0 p-0 ring-1 ring-border sm:rounded-2xl"
+      >
         <div className="relative flex min-h-[26rem] items-center justify-center p-5 sm:min-h-[34rem] sm:p-10">
           <DiagonalShowcase />
           <div className="relative w-full max-w-sm rounded-2xl border border-border/60 bg-background/80 p-8 text-center shadow-2xl backdrop-blur-xl">

@@ -1132,8 +1132,14 @@ export default function Page() {
     setWelcomeOpen(false);
   }
 
-  // The Clerk sign-in modal opens OVER the welcome modal; once sign-in lands,
-  // finish the hand-off: close the welcome and confirm the credits are live.
+  // Clerk's sign-in modal opens ON TOP of our welcome modal. The welcome is a
+  // NON-modal Radix dialog (see WelcomeModal), specifically so it doesn't
+  // disable pointer events outside itself: that lets the very first click land
+  // on Clerk ("Continue with Google" etc.) instead of being spent dismissing
+  // our dialog. The welcome simply stays open behind Clerk's backdrop; once
+  // sign-in lands, this finishes the hand-off (dismiss + confirm credits). The
+  // welcomeOpen guard also keeps it from firing for a visitor who loaded
+  // already signed in.
   const wasSignedInRef = useRef(false);
   useEffect(() => {
     if (auth.isSignedIn && !wasSignedInRef.current && welcomeOpen) {
