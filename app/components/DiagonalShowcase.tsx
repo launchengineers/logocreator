@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { useTheme } from "next-themes";
 import { SHOWCASE } from "@/app/lib/showcase";
 
@@ -16,6 +16,49 @@ function chunk<T>(arr: T[], n: number): T[][] {
   const out: T[][] = Array.from({ length: n }, () => []);
   arr.forEach((item, i) => out[i % n].push(item));
   return out;
+}
+
+/**
+ * One showcase card. The logo art is a background-removed PNG, so the card's
+ * own surface is the only backdrop, and it fades in place once its image has
+ * loaded instead of popping in whenever the network happens to deliver it.
+ */
+function Tile({ src }: { src: string }) {
+  const ref = useRef<HTMLImageElement | null>(null);
+  const [loaded, setLoaded] = useState(false);
+  // Covers images that completed from cache before hydration attached onLoad,
+  // and re-runs the fade when a theme flip swaps the src to the other variant.
+  useEffect(() => {
+    setLoaded(ref.current?.complete ?? false);
+  }, [src]);
+  return (
+    <div className="flex size-28 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        ref={ref}
+        src={src}
+        alt=""
+        loading="lazy"
+        draggable={false}
+        onLoad={() => setLoaded(true)}
+        onError={(e) => {
+          const img = e.currentTarget;
+          // A missing -dark.png variant falls back to the light image before
+          // giving up, so dark mode never shows a sparse row just because one
+          // variant wasn't shipped.
+          if (img.src.endsWith("-dark.png")) {
+            img.src = img.src.replace(/-dark\.png$/, ".png");
+            return;
+          }
+          const tile = img.parentElement;
+          if (tile) tile.style.display = "none";
+        }}
+        className={`size-full object-contain p-2 transition-opacity duration-700 ease-out ${
+          loaded ? "opacity-100" : "opacity-0"
+        }`}
+      />
+    </div>
+  );
 }
 
 /**
@@ -53,31 +96,7 @@ export default function DiagonalShowcase() {
                 style={{ "--marquee-dur": cfg.dur } as CSSProperties}
               >
                 {tiles.map((logo, j) => (
-                  <div
-                    key={`${i}-${j}`}
-                    className="flex size-28 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-border bg-card shadow-sm"
-                  >
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={srcFor(logo.src)}
-                      alt=""
-                      loading="lazy"
-                      draggable={false}
-                      onError={(e) => {
-                        const img = e.currentTarget;
-                        // A missing -dark.png variant falls back to the light
-                        // image before giving up, so dark mode never shows a
-                        // sparse row just because one variant wasn't shipped.
-                        if (img.src.endsWith("-dark.png")) {
-                          img.src = img.src.replace(/-dark\.png$/, ".png");
-                          return;
-                        }
-                        const tile = img.parentElement;
-                        if (tile) tile.style.display = "none";
-                      }}
-                      className="size-full object-contain p-2"
-                    />
-                  </div>
+                  <Tile key={`${i}-${j}`} src={srcFor(logo.src)} />
                 ))}
               </div>
             </div>

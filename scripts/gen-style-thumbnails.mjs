@@ -115,7 +115,7 @@ for (const style of todo) {
       response_format: "base64",
       output_format: "png",
     };
-    const res = await client.images.create(body);
+    const res = await client.images.generate(body);
     const b64 = res.data[0].b64_json;
     const png = knockoutWhite(PNG.sync.read(Buffer.from(b64, "base64")));
     fs.writeFileSync(path.join(outDir, `${style.key}.png`), PNG.sync.write(png));

@@ -119,7 +119,7 @@ async function genOne({ b, out }) {
   const ATTEMPTS = 5;
   for (let attempt = 1; attempt <= ATTEMPTS; attempt++) {
     try {
-      const res = await client.images.create({
+      const res = await client.images.generate({
         model: "black-forest-labs/FLUX.2-pro",
         prompt: buildPrompt(b),
         width: 768,

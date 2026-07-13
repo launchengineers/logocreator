@@ -130,7 +130,7 @@ async function genOne({ key, n, subject, out }) {
   const ATTEMPTS = 5;
   for (let attempt = 1; attempt <= ATTEMPTS; attempt++) {
     try {
-      const res = await client.images.create({
+      const res = await client.images.generate({
         model: "black-forest-labs/FLUX.2-pro",
         prompt: `${STYLE_PROMPT[key](subject)}. A single clean, centered logo mark, no text or lettering, on a plain solid white background.`,
         width: 768,
