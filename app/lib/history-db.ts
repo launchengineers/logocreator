@@ -23,6 +23,8 @@ export type KitAsset = {
   path: string; // zip-relative filename, e.g. "variants/logo-on-light.png"
   group: string;
   name: string;
+  /** Metered AI render (restored tiles keep honest cost counts). */
+  ai?: boolean;
   hidden: boolean;
   blob: Blob;
 };

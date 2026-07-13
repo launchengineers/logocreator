@@ -28,37 +28,25 @@ import { PRICE_PER_AI_ASSET, formatUsd } from "@/app/lib/pricing";
 import type { BrandKitItem, BrandKitPhase } from "@/app/hooks/use-brand-kit";
 import type { Generation } from "./Gallery";
 
-// Short "what's inside" blurbs + which categories cost AI credits.
-const CATEGORY_META: Record<string, { blurb: string; paid: boolean }> = {
+// Short "what's inside" blurbs; costs are derived per item from the ai flag.
+const CATEGORY_META: Record<string, { blurb: string }> = {
   "Logo variants": {
-    blurb: "On-dark, on-light, monochrome, transparent + SVG",
-    paid: false,
-  },
-  "Logo lockups": {
-    blurb: "Icon-only, wordmark, horizontal & stacked layouts",
-    paid: true,
-  },
-  "Icons & favicons": { blurb: "App icon + every favicon size", paid: false },
-  "Web & social": { blurb: "Avatar, banner, OG card & pattern", paid: false },
-  "Product mockups": {
-    blurb: "Business card, website, phone & signage",
-    paid: false,
+    blurb: "Transparent, on-light, on-dark + SVG",
   },
   Merch: {
-    blurb: "Printed on real photos: t-shirt, mug & tote",
-    paid: false,
+    blurb: "Real-photo tee, mug & tote + AI card & signage",
   },
-  Mockups: { blurb: "AI shots: business card & signage", paid: true },
+  "Web & social": { blurb: "Avatar, Open Graph card & banner" },
+  "Icons & favicons": { blurb: "App icon + favicon" },
 };
 
+// Merch leads: the product shots are the most compelling thing to hand
+// someone, so they open the kit; the working files follow.
 const GROUP_ORDER = [
-  "Logo variants",
-  "Logo lockups",
-  "Icons & favicons",
-  "Web & social",
-  "Product mockups",
   "Merch",
-  "Mockups",
+  "Logo variants",
+  "Web & social",
+  "Icons & favicons",
 ];
 
 export default function BrandKitModal({
@@ -128,11 +116,9 @@ export default function BrandKitModal({
   );
   const nowRendering = visibleItems.find((i) => i.status === "building")?.name;
   const pct = total > 0 ? (doneCount / total) * 100 : 0;
-  // Only the AI renders (mockups + lockups) cost credits; the count
-  // varies by logo type, so derive the estimate from the actual asset list.
-  const aiCount = visibleItems.filter(
-    (i) => i.group === "Mockups" || i.group === "Logo lockups",
-  ).length;
+  // Only the AI renders cost credits; each carries its own flag, so mixed
+  // groups (Merch = photo prints + two AI shots) still count honestly.
+  const aiCount = visibleItems.filter((i) => i.ai).length;
   const aiCost = aiCount * PRICE_PER_AI_ASSET;
 
   return (
@@ -177,12 +163,12 @@ export default function BrandKitModal({
                   : "Building your brand kit"}
               </DialogTitle>
               <DialogDescription>
-                {gen.companyName || "Your logo"}: variants, icons, social
-                assets, product mockups and a color palette.
+                {gen.companyName || "Your logo"}: merch, logo variants, social
+                assets, icons and a color palette.
               </DialogDescription>
               <p
                 className="text-xs text-muted-foreground"
-                title="Together AI bills only the AI renders (product mockups + logo lockups) to your key. Everything else (variants, icons, favicons, social, backgrounds) is generated on-device for free."
+                title="Together AI bills only the two AI product shots (business card + signage) to your key. Everything else (variants, merch photo prints, social, icons) is generated on-device for free."
               >
                 ~{formatUsd(aiCost)} in AI credits · {aiCount} AI render
                 {aiCount === 1 ? "" : "s"}, everything else free
@@ -249,8 +235,8 @@ export default function BrandKitModal({
               )}
 
               {groups.map((group) => {
-                const showcase =
-                  group === "Mockups" || group === "Web & social";
+                // Photographic groups get bigger tiles (they read as scenes).
+                const showcase = group === "Merch" || group === "Web & social";
                 const groupItems = visibleItems.filter(
                   (i) => i.group === group,
                 );
@@ -479,15 +465,14 @@ function ConfigureView({
   const categories = useMemo(() => {
     return GROUP_ORDER.filter((g) => items.some((i) => i.group === g)).map(
       (group) => {
-        const count = items.filter(
-          (i) => i.group === group && !i.hidden,
-        ).length;
-        const paid = CATEGORY_META[group]?.paid ?? false;
+        const groupItems = items.filter((i) => i.group === group && !i.hidden);
+        const aiItems = groupItems.filter((i) => i.ai).length;
+        const cost = aiItems * PRICE_PER_AI_ASSET;
         return {
           group,
-          count,
-          paid,
-          cost: paid ? count * PRICE_PER_AI_ASSET : 0,
+          count: groupItems.length,
+          paid: cost > 0,
+          cost,
           blurb: CATEGORY_META[group]?.blurb ?? "",
           preview: previews[group],
         };
@@ -525,8 +510,8 @@ function ConfigureView({
           Build {gen.companyName || "your"} brand kit
         </DialogTitle>
         <DialogDescription>
-          Pick what to include. Variants, icons &amp; social are generated free
-          on your device. Only AI mockups &amp; lockups use credits.
+          Pick what to include. Almost everything is generated free on your
+          device; only the two AI product shots use credits.
         </DialogDescription>
       </DialogHeader>
 

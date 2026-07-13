@@ -162,18 +162,11 @@ export async function buildStyleGuide(
       use: "Dark or photographic backgrounds.",
     },
     {
-      key: "variants/monochrome-black.png",
+      key: "variants/logo-transparent.png",
       bg: "#f3f2ee",
       border: true,
-      label: "Monochrome",
-      use: "One-color print, engraving, stamps.",
-    },
-    {
-      key: "variants/monochrome-white.png",
-      bg: "#1b1b19",
-      border: false,
-      label: "Reversed",
-      use: "One-color on dark surfaces.",
+      label: "Transparent",
+      use: "Overlays, merch printing, watermarks.",
     },
   ];
   const tiles = await Promise.all(

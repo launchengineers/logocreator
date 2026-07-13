@@ -38,16 +38,16 @@ export type BrandKitItem = {
   filename: string;
   status: BrandKitStatus;
   url?: string;
-  /** Built + zipped but not shown as a tile (e.g. favicon size variants). */
+  /** Built + zipped but not shown as a tile. */
   hidden?: boolean;
+  /** A metered AI render (the modal derives costs and counts from this). */
+  ai?: boolean;
 };
 
 export type BrandKitPhase = "configure" | "building" | "done";
 
 // How many AI (image-edit) renders run at once.
 const AI_CONCURRENCY = 4;
-// Groups that cost real money (everything else is free canvas work).
-const AI_GROUPS = new Set(["Mockups", "Logo lockups"]);
 
 export type BrandKitController = {
   gen: Generation | null;
@@ -192,14 +192,9 @@ export function useBrandKit(apiKey: string): BrandKitController {
         filename: "variants/logo.svg",
         build: () => logoToSvgBlob(dataUrl),
       });
-      // Light logos need dark surfaces in the AI mockups/lockups too, or a white
-      // logo prints invisibly on a white tee / white background.
-      const ai = aiAssetSpecs(
-        key,
-        dataUrl,
-        g.params.logoType,
-        isLightInkLogo(transparent),
-      );
+      // Light logos need dark surfaces in the AI product shots too, or a white
+      // logo prints invisibly on a white card / white wall.
+      const ai = aiAssetSpecs(key, dataUrl, isLightInkLogo(transparent));
       const specs = [...det, ...ai];
       specsRef.current = specs;
       if (!alive()) return;
@@ -208,6 +203,7 @@ export function useBrandKit(apiKey: string): BrandKitController {
           ...s,
           status: "pending" as BrandKitStatus,
           hidden: s.hidden,
+          ai: s.ai,
         })),
       );
       // Previews are the heaviest step (they render preview canvases, including
@@ -252,6 +248,7 @@ export function useBrandKit(apiKey: string): BrandKitController {
           ...s,
           status: "pending" as BrandKitStatus,
           hidden: s.hidden,
+          ai: s.ai,
         })),
       );
       setPhase("building");
@@ -284,8 +281,8 @@ export function useBrandKit(apiKey: string): BrandKitController {
       };
 
       // Deterministic canvas assets first (instant), then AI with concurrency.
-      const det = specs.filter((s) => !AI_GROUPS.has(s.group));
-      const ai = specs.filter((s) => AI_GROUPS.has(s.group));
+      const det = specs.filter((s) => !s.ai);
+      const ai = specs.filter((s) => s.ai);
       for (const spec of det) {
         if (!alive()) return;
         await buildOne(spec);
@@ -315,9 +312,10 @@ export function useBrandKit(apiKey: string): BrandKitController {
             group: s.group,
             name: s.name,
             hidden: !!s.hidden,
+            ai: !!s.ai,
             blob: blobs.current.get(s.filename)!,
           }));
-        const aiCount = files.filter((f) => AI_GROUPS.has(f.group)).length;
+        const aiCount = files.filter((f) => f.ai).length;
         saveKit({
           logoId: g.id,
           companyName: g.companyName,
@@ -381,6 +379,7 @@ export function useBrandKit(apiKey: string): BrandKitController {
             name: f.name,
             filename: f.path,
             hidden: f.hidden,
+            ai: f.ai,
             status: "done" as BrandKitStatus,
             url,
           };

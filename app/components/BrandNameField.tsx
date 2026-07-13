@@ -294,7 +294,7 @@ export default function BrandNameField({
                 : onCompanyNameChange(e.target.value)
             }
             onKeyDown={onInputKeyDown}
-            placeholder={isUrl ? "yourcompany.com" : "Acme Inc."}
+            placeholder={isUrl ? "yourcompany.com" : "Solstice Coffee"}
             required={!isUrl}
             disabled={disabled || (isUrl && loading !== false)}
             inputMode={isUrl ? "url" : undefined}

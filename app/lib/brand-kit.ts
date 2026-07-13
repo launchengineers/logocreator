@@ -91,12 +91,35 @@ export function makeTransparent(
   bg /= nc;
   bb /= nc;
 
-  const tol = tolerance * 3; // sum over 3 channels
-  const tolSoft = tol * 2.1; // wider band for the feathered edge
   const dist = (p: number) =>
     Math.abs(d[p * 4] - br) +
     Math.abs(d[p * 4 + 1] - bg) +
     Math.abs(d[p * 4 + 2] - bb);
+
+  // Adaptive tolerance: the generators return JPEGs, whose flat backgrounds
+  // carry real block/ringing noise. A fixed threshold either leaves noise
+  // residue (too tight) or eats light marks (too loose), so measure the
+  // border pixels' actual spread around the reference color and set the hard
+  // threshold just above their 95th percentile. Clamped so a busy border
+  // can't blow the tolerance open.
+  const borderDists: number[] = [];
+  for (let x = 0; x < w; x += 2) {
+    if (d[x * 4 + 3] >= 200) borderDists.push(dist(x));
+    const q = (h - 1) * w + x;
+    if (d[q * 4 + 3] >= 200) borderDists.push(dist(q));
+  }
+  for (let y = 0; y < h; y += 2) {
+    const l = y * w;
+    const r = y * w + w - 1;
+    if (d[l * 4 + 3] >= 200) borderDists.push(dist(l));
+    if (d[r * 4 + 3] >= 200) borderDists.push(dist(r));
+  }
+  borderDists.sort((a, b) => a - b);
+  const p95 = borderDists.length
+    ? borderDists[Math.floor(borderDists.length * 0.95)]
+    : 0;
+  const tol = Math.min(Math.max(tolerance * 3, p95 * 1.4 + 18), 168);
+  const tolSoft = tol * 2.1; // wider band for the feathered edge
 
   // Flood fill from the borders over pixels within the hard tolerance. The
   // stack is a preallocated typed array (each pixel enters at most once via
@@ -132,24 +155,94 @@ export function makeTransparent(
     if (y < h - 1) seed(p + w);
   }
 
-  // Feather: any still-opaque pixel that borders a cleared one and sits in the
-  // soft band gets its alpha scaled down: kills the bg-colored halo.
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      const p = y * w + x;
-      if (d[p * 4 + 3] === 0) continue;
-      const touchesCleared =
-        (x > 0 && d[(p - 1) * 4 + 3] === 0) ||
-        (x < w - 1 && d[(p + 1) * 4 + 3] === 0) ||
-        (y > 0 && d[(p - w) * 4 + 3] === 0) ||
-        (y < h - 1 && d[(p + w) * 4 + 3] === 0);
-      if (!touchesCleared) continue;
-      const dd = dist(p);
-      if (dd < tolSoft) {
-        const k = (dd - tol) / (tolSoft - tol); // 0 at bg → 1 at edge of band
-        d[p * 4 + 3] = Math.round(d[p * 4 + 3] * Math.max(0, Math.min(1, k)));
+  // Enclosed counters: after the border fill, any still-opaque pixel that is
+  // within the TIGHT tolerance of the reference bg is a letter hole (the "o",
+  // "a", "b" counters) or gap the flood couldn't reach because ink surrounds
+  // it. It is literally the background color, so clear it too — otherwise the
+  // "transparent" logo ships with pale filled counters. A tighter band than
+  // the border fill keeps genuine light highlights (a different color the
+  // model drew on purpose) intact.
+  const tolTight = tol * 0.82;
+  for (let p = 0; p < w * h; p++) {
+    if (d[p * 4 + 3] >= 16 && !visited[p] && dist(p) < tolTight) {
+      d[p * 4 + 3] = 0;
+    }
+  }
+
+  // Despeckle: JPEG noise can leave small opaque islands of near-background
+  // pixels floating next to the mark (the "residue" that cheapens the cutout).
+  // Any surviving connected component made ONLY of bg-band pixels and smaller
+  // than a speck threshold is background noise, not artwork: real marks (or
+  // mark details) in a bg-like color are far larger or connect to non-bg ink.
+  {
+    const speckMax = Math.max(64, Math.round(w * h * 0.0002)); // ~200px @1024²
+    const comp = new Uint8Array(w * h); // 1 = already assigned to a component
+    const members = new Int32Array(speckMax + 1);
+    for (let start = 0; start < w * h; start++) {
+      if (comp[start] || d[start * 4 + 3] === 0 || dist(start) >= tolSoft) {
+        continue;
+      }
+      // Walk the FULL component (early-stopping could strand unexplored
+      // fragments that would later masquerade as small specks); only the
+      // first speckMax member positions are stored, since anything larger
+      // is kept regardless.
+      let count = 0;
+      let sp2 = 0;
+      stack[sp2++] = start;
+      comp[start] = 1;
+      while (sp2 > 0) {
+        const p = stack[--sp2];
+        if (count <= speckMax) members[count] = p;
+        count++;
+        const x = p % w;
+        const y = (p - x) / w;
+        for (const q of [
+          x > 0 ? p - 1 : -1,
+          x < w - 1 ? p + 1 : -1,
+          y > 0 ? p - w : -1,
+          y < h - 1 ? p + w : -1,
+        ]) {
+          if (q < 0 || comp[q] || d[q * 4 + 3] === 0) continue;
+          if (dist(q) >= tolSoft) continue;
+          comp[q] = 1;
+          stack[sp2++] = q;
+        }
+      }
+      if (count <= speckMax) {
+        for (let i = 0; i < count; i++) d[members[i] * 4 + 3] = 0;
       }
     }
+  }
+
+  // Feather: any still-opaque pixel that borders a cleared one and sits in the
+  // soft band gets its alpha scaled down: kills the bg-colored halo. Two rings
+  // deep, since JPEG edges smear the background over more than one pixel.
+  for (let ring = 0; ring < 2; ring++) {
+    const faded: number[] = [];
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const p = y * w + x;
+        if (d[p * 4 + 3] === 0) continue;
+        if (visited[p] === 2) continue; // already feathered in a prior ring
+        const touchesCleared =
+          (x > 0 && (d[(p - 1) * 4 + 3] === 0 || visited[p - 1] === 2)) ||
+          (x < w - 1 && (d[(p + 1) * 4 + 3] === 0 || visited[p + 1] === 2)) ||
+          (y > 0 && (d[(p - w) * 4 + 3] === 0 || visited[p - w] === 2)) ||
+          (y < h - 1 && (d[(p + w) * 4 + 3] === 0 || visited[p + w] === 2));
+        if (!touchesCleared) continue;
+        const dd = dist(p);
+        if (dd < tolSoft) {
+          // 0 at pure bg → 1 at the far edge of the band; the outer ring only
+          // softens (never fully clears), so thin strokes survive.
+          const k = (dd - tol) / (tolSoft - tol);
+          const scale = Math.max(ring === 0 ? 0 : 0.35, Math.min(1, k));
+          d[p * 4 + 3] = Math.round(d[p * 4 + 3] * scale);
+          faded.push(p);
+        }
+      }
+    }
+    for (const p of faded) visited[p] = 2;
+    if (!faded.length) break;
   }
 
   ctx.putImageData(image, 0, 0);
@@ -909,48 +1002,15 @@ export function onSolid(
   return placeContained(c, source, maxFrac, 0.5, 0.5);
 }
 
-/** A tasteful seamless-ish repeating pattern of a mark on a soft tonal bg. */
-export function patternCanvas(
-  mark: HTMLCanvasElement,
-  size: number,
-  hex: string,
-): HTMLCanvasElement {
-  const c = document.createElement("canvas");
-  c.width = size;
-  c.height = size;
-  const ctx = c.getContext("2d")!;
-  // Tone the field to contrast with the actual mark: a deep brand tint behind a
-  // light mark, a pale one behind a dark mark, so neither vanishes into it.
-  const markLight = inkStats(mark).luma > INK_LIGHT;
-  ctx.fillStyle = markLight ? toneAt(hex, 0.3) : toneAt(hex, 0.93);
-  ctx.fillRect(0, 0, size, size);
-  ctx.imageSmoothingEnabled = true;
-  ctx.imageSmoothingQuality = "high";
-  const cols = 4;
-  const cell = size / cols;
-  const mFrac = 0.52;
-  const mw = (mark.width / Math.max(mark.width, mark.height)) * cell * mFrac;
-  const mh = (mark.height / Math.max(mark.width, mark.height)) * cell * mFrac;
-  ctx.globalAlpha = 0.9;
-  for (let row = -1; row <= cols; row++) {
-    for (let col = -1; col <= cols; col++) {
-      // Brick offset every other row for a nicer repeat.
-      const ox = (row % 2 === 0 ? 0 : cell / 2) + col * cell + cell / 2;
-      const oy = row * cell + cell / 2;
-      ctx.drawImage(mark, ox - mw / 2, oy - mh / 2, mw, mh);
-    }
-  }
-  ctx.globalAlpha = 1;
-  return c;
-}
-
 export type AssetSpec = {
   group: string;
   name: string;
   filename: string;
   build: () => Promise<Blob>;
-  /** Built + included in the zip, but not shown as a tile (e.g. favicon sizes). */
+  /** Built + included in the zip, but not shown as a tile. */
   hidden?: boolean;
+  /** A metered AI render (billed per image); everything else is free canvas work. */
+  ai?: boolean;
 };
 
 export type DeterministicCtx = {
@@ -964,8 +1024,8 @@ export type DeterministicCtx = {
  * Deterministic (canvas, always-available, perfect-fidelity) brand-kit assets.
  * Logo-type aware: wordmark / icon+name logos get a clean monogram for their
  * icon & favicon (a wide wordmark can't be a square favicon); icon / emblem /
- * abstract / monogram logos use their actual mark. Backgrounds, social and
- * patterns are real canvas composites of the logo (never AI), so the logo is
+ * abstract / monogram logos use their actual mark. Backgrounds and social
+ * cards are real canvas composites of the logo (never AI), so the logo is
  * always reproduced exactly. Falls back gracefully when the background can't be
  * removed (textured logo) by compositing on clean white instead of a gradient.
  */
@@ -1132,28 +1192,15 @@ export async function categoryPreviews(
   const ink = inkStats(transFull);
   const lightInk = cutoutOk && ink.luma > INK_LIGHT;
   const darkInk = cutoutOk && ink.luma < INK_DARK;
-  const monoInk = ink.chroma < INK_MONO_CHROMA;
   // Same partial-dark-ink reading the builders use, so the previews show the
   // exact treatment the real assets will get.
   const darkFrac = cutoutOk ? darkInkFraction(transFull) : 0;
   const reversed =
     cutoutOk && !lightInk && darkFrac > 0.1 ? reverseForDark(transFull) : null;
   const markLight = inkStats(markGlyph).luma > INK_LIGHT;
-  // On a forced-light surface a monochrome light logo is printed in its dark
-  // form (how you'd really print it); colorful marks keep their hue.
-  const onLight: HTMLImageElement | HTMLCanvasElement =
-    lightInk && monoInk ? recolor(transFull, DARK_SURFACE, true) : full;
   const u = (c: HTMLCanvasElement) => c.toDataURL("image/png");
   const W = 320;
   const H = 240;
-  // Downscale a full 1600x1200 mockup scene to a preview tile.
-  const scenePreview = (big: HTMLCanvasElement) => {
-    const c = document.createElement("canvas");
-    c.width = W;
-    c.height = H;
-    c.getContext("2d")!.drawImage(big, 0, 0, W, H);
-    return u(c);
-  };
   // Center-crop a square merch plate composite into the 4:3 preview tile.
   const merchPreview = (sq: HTMLCanvasElement) => {
     const c = document.createElement("canvas");
@@ -1185,9 +1232,6 @@ export async function categoryPreviews(
         0.18,
       ),
     ),
-    "Logo lockups": u(
-      scaleOnto(full, W, H, lightInk ? DARK_SURFACE : LIGHT_SURFACE, 0.16),
-    ),
     "Icons & favicons": u(
       tileWith(
         markGlyph,
@@ -1210,7 +1254,6 @@ export async function categoryPreviews(
           ),
         )
       : u(onSolid(full, W, H, "#ffffff", 0.42)),
-    "Product mockups": scenePreview(businessCardScene(onLight, brandColor)),
     Merch: merchPreview(
       await merchComposite(
         plan.logo,
@@ -1218,7 +1261,6 @@ export async function categoryPreviews(
         plan.onDark,
       ),
     ),
-    Mockups: u(onSolid(full, W, H, lightInk ? "#2a2a28" : "#d8d4cc", 0.34)),
   };
 }
 
@@ -1295,14 +1337,11 @@ export function deterministicAssetSpecs(
       : onSolid(fullForComposite, w, h, "#ffffff", maxFrac);
 
   // ── Logo variants ──────────────────────────────────────
-  const variants: AssetSpec[] = [
-    {
-      group: "Logo variants",
-      name: "Original",
-      filename: "variants/logo-original.png",
-      build: png(scaleOnto(img, 1024, 1024, null, 0)),
-    },
-  ];
+  // Deliberately condensed to the three files people actually reach for
+  // (plus the auto-traced SVG the hook appends): transparent for overlaying
+  // anywhere, and the on-light / on-dark pair that always reads. The old
+  // original + monochrome pair were filler that diluted the kit.
+  const variants: AssetSpec[] = [];
   if (cutoutOk) {
     variants.push(
       {
@@ -1310,34 +1349,6 @@ export function deterministicAssetSpecs(
         name: "Transparent",
         filename: "variants/logo-transparent.png",
         build: png(scaleOnto(transFull, 1024, 1024, null, 0.04)),
-      },
-      {
-        group: "Logo variants",
-        name: "Monochrome black",
-        filename: "variants/monochrome-black.png",
-        build: png(
-          scaleOnto(
-            recolor(transFull, "#000000", true),
-            1024,
-            1024,
-            null,
-            0.08,
-          ),
-        ),
-      },
-      {
-        group: "Logo variants",
-        name: "Monochrome white",
-        filename: "variants/monochrome-white.png",
-        build: png(
-          scaleOnto(
-            recolor(transFull, "#ffffff", true),
-            1024,
-            1024,
-            null,
-            0.08,
-          ),
-        ),
       },
       {
         group: "Logo variants",
@@ -1378,9 +1389,8 @@ export function deterministicAssetSpecs(
     );
   } else {
     // The border flood fill couldn't key this background (gradient / texture).
-    // Don't drop every variant: still ship an on-light card of the real
-    // artwork, and try a plain global color key for the monochrome pair, which
-    // tolerates non-flat backgrounds far better than nothing at all.
+    // Ship the real artwork on light, plus a white form from a plain global
+    // color key (tolerates non-flat backgrounds) so dark surfaces stay usable.
     variants.push({
       group: "Logo variants",
       name: "On light",
@@ -1390,73 +1400,41 @@ export function deterministicAssetSpecs(
     const keyed = globalKeyCutout(img);
     if (keyed) {
       const keyedCrop = cropToContent(keyed, 0.02);
-      variants.push(
-        {
-          group: "Logo variants",
-          name: "Monochrome black",
-          filename: "variants/monochrome-black.png",
-          build: png(
-            scaleOnto(
-              recolor(keyedCrop, "#000000", true),
-              1024,
-              1024,
-              null,
-              0.08,
-            ),
+      variants.push({
+        group: "Logo variants",
+        name: "On dark",
+        filename: "variants/logo-on-dark.png",
+        build: png(
+          scaleOnto(
+            recolor(keyedCrop, "#ffffff", true),
+            1024,
+            1024,
+            DARK_SURFACE,
+            0.14,
           ),
-        },
-        {
-          group: "Logo variants",
-          name: "Monochrome white",
-          filename: "variants/monochrome-white.png",
-          build: png(
-            scaleOnto(
-              recolor(keyedCrop, "#ffffff", true),
-              1024,
-              1024,
-              null,
-              0.08,
-            ),
-          ),
-        },
-      );
+        ),
+      });
     }
   }
 
   // ── Icons & favicons ───────────────────────────────────
+  // Two files only: the 1024 app icon (every store / PWA pipeline resizes
+  // from one big square) and a ready-to-drop favicon. The old six-size set
+  // was zip padding nobody asked for.
   const icons: AssetSpec[] = [
     {
       group: "Icons & favicons",
-      name: "Icon",
-      filename: "icons/icon.png",
-      build: png(scaleOnto(markGlyph, 1024, 1024, null, 0.08)),
+      name: "App icon",
+      filename: "icons/app-icon-1024.png",
+      build: png(appTile),
     },
     {
       group: "Icons & favicons",
-      name: "App icon",
-      filename: "icons/app-icon.png",
-      build: png(appTile),
+      name: "Favicon",
+      filename: "icons/favicon-32.png",
+      build: png(scaleOnto(appTile, 32, 32, null, 0)),
     },
   ];
-  // Full size set goes in the zip but isn't shown as a tile (kept crisp by
-  // downscaling from the 1024 app icon).
-  const faviconSizes: [number, string][] = [
-    [512, "icons/icon-512.png"],
-    [192, "icons/icon-192.png"],
-    [180, "icons/apple-touch-icon-180.png"],
-    [48, "icons/favicon-48.png"],
-    [32, "icons/favicon-32.png"],
-    [16, "icons/favicon-16.png"],
-  ];
-  for (const [s, filename] of faviconSizes) {
-    icons.push({
-      group: "Icons & favicons",
-      name: filename.split("/")[1].replace(".png", ""),
-      filename,
-      build: png(scaleOnto(appTile, s, s, null, 0)),
-      hidden: true,
-    });
-  }
 
   // ── Web & social ───────────────────────────────────────
   const social: AssetSpec[] = [
@@ -1487,286 +1465,13 @@ export function deterministicAssetSpecs(
       filename: "social/banner-1500x500.png",
       build: png(composite(1500, 500, 0.52, 0.26, 0.5)),
     },
-    {
-      group: "Web & social",
-      name: "Pattern",
-      filename: "social/pattern.png",
-      build: png(patternCanvas(markGlyph, 1024, brandColor)),
-    },
   ];
 
-  const scenes = mockupScenes(img, transFull, cutoutOk, ctx);
   const merch = merchMockups(img, transFull, cutoutOk, lightInk);
-  return [...variants, ...icons, ...social, ...scenes, ...merch];
+  return [...merch, ...variants, ...social, ...icons];
 }
-
-// ── Product mockups (deterministic illustrated scenes) ──────────────────
-// The logo composited onto clean, flat vector scenes drawn entirely on canvas:
-// no photos, no AI, no licensing, and fully repeatable. Every scene places the
-// logo on a LIGHT surface (card, screen, panel, sign) so it reads whether or
-// not the background could be keyed out, while brand color carries the
-// surrounding elements. Deliberately limited to the print/digital scenes that
-// hold up as flat illustrations; merch (tee, tote, mug) uses the real photo
-// plates in merchMockups() so the kit never ships a weaker duplicate.
 
 type Drawable = HTMLImageElement | HTMLCanvasElement;
-
-function drawContained(
-  ctx: CanvasRenderingContext2D,
-  source: Drawable,
-  x: number,
-  y: number,
-  w: number,
-  h: number,
-) {
-  const sw = (source as HTMLImageElement).naturalWidth || source.width;
-  const sh = (source as HTMLImageElement).naturalHeight || source.height;
-  const sc = Math.min(w / sw, h / sh);
-  const dw = sw * sc;
-  const dh = sh * sc;
-  ctx.imageSmoothingEnabled = true;
-  ctx.imageSmoothingQuality = "high";
-  ctx.drawImage(source, x + (w - dw) / 2, y + (h - dh) / 2, dw, dh);
-}
-
-const SCENE_W = 1600;
-const SCENE_H = 1200;
-
-function sceneCanvas(bg: string): {
-  c: HTMLCanvasElement;
-  ctx: CanvasRenderingContext2D;
-} {
-  const c = document.createElement("canvas");
-  c.width = SCENE_W;
-  c.height = SCENE_H;
-  const ctx = c.getContext("2d")!;
-  ctx.fillStyle = bg;
-  ctx.fillRect(0, 0, SCENE_W, SCENE_H);
-  return { c, ctx };
-}
-
-function withShadow(
-  ctx: CanvasRenderingContext2D,
-  blur: number,
-  dy: number,
-  fn: () => void,
-  alpha = 0.18,
-) {
-  ctx.save();
-  ctx.shadowColor = `rgba(20,18,15,${alpha})`;
-  ctx.shadowBlur = blur;
-  ctx.shadowOffsetY = dy;
-  fn();
-  ctx.restore();
-}
-
-function businessCardScene(logo: Drawable, brand: string): HTMLCanvasElement {
-  const { c, ctx } = sceneCanvas(shade(brand, 0.92));
-  const cw = 760;
-  const ch = 470;
-  const r = 30;
-  const cx = SCENE_W / 2;
-  const cy = SCENE_H / 2;
-  // Brand card behind (offset up-left) for depth.
-  withShadow(ctx, 55, 26, () => {
-    roundRectPath(ctx, cx - cw / 2 - 64, cy - ch / 2 - 64, cw, ch, r);
-    ctx.fillStyle = brand;
-    ctx.fill();
-  });
-  // White card in front (offset down-right) carrying the logo.
-  const fx = cx - cw / 2 + 64;
-  const fy = cy - ch / 2 + 64;
-  withShadow(
-    ctx,
-    70,
-    34,
-    () => {
-      roundRectPath(ctx, fx, fy, cw, ch, r);
-      ctx.fillStyle = "#ffffff";
-      ctx.fill();
-    },
-    0.24,
-  );
-  drawContained(
-    ctx,
-    logo,
-    fx + cw * 0.17,
-    fy + ch * 0.22,
-    cw * 0.66,
-    ch * 0.56,
-  );
-  return c;
-}
-
-function browserScene(logo: Drawable, brand: string): HTMLCanvasElement {
-  const { c, ctx } = sceneCanvas(shade(brand, 0.92));
-  const w = 1200;
-  const h = 800;
-  const x = (SCENE_W - w) / 2;
-  const y = (SCENE_H - h) / 2;
-  const r = 26;
-  withShadow(
-    ctx,
-    70,
-    34,
-    () => {
-      roundRectPath(ctx, x, y, w, h, r);
-      ctx.fillStyle = "#ffffff";
-      ctx.fill();
-    },
-    0.2,
-  );
-  // Top chrome bar.
-  ctx.save();
-  roundRectPath(ctx, x, y, w, h, r);
-  ctx.clip();
-  ctx.fillStyle = "#f1efea";
-  ctx.fillRect(x, y, w, 72);
-  ctx.fillStyle = "#e6e3dd";
-  [0, 1, 2].forEach((i) => {
-    ctx.beginPath();
-    ctx.arc(x + 40 + i * 34, y + 36, 9, 0, Math.PI * 2);
-    ctx.fill();
-  });
-  roundRectPath(ctx, x + 150, y + 22, w - 230, 30, 15);
-  ctx.fillStyle = "#ffffff";
-  ctx.fill();
-  ctx.restore();
-  // Hero logo + faux tagline + brand button.
-  drawContained(ctx, logo, x + w * 0.3, y + 150, w * 0.4, 260);
-  ctx.fillStyle = "#e7e4de";
-  roundRectPath(ctx, x + w / 2 - 220, y + 470, 440, 20, 10);
-  ctx.fill();
-  roundRectPath(ctx, x + w / 2 - 150, y + 510, 300, 20, 10);
-  ctx.fill();
-  withShadow(ctx, 24, 10, () => {
-    roundRectPath(ctx, x + w / 2 - 90, y + 580, 180, 56, 28);
-    ctx.fillStyle = brand;
-    ctx.fill();
-  });
-  return c;
-}
-
-function phoneScene(logo: Drawable, brand: string): HTMLCanvasElement {
-  const { c, ctx } = sceneCanvas(shade(brand, 0.9));
-  const pw = 540;
-  const ph = 1040;
-  const x = (SCENE_W - pw) / 2;
-  const y = (SCENE_H - ph) / 2;
-  // Device body.
-  withShadow(
-    ctx,
-    80,
-    36,
-    () => {
-      roundRectPath(ctx, x, y, pw, ph, 76);
-      ctx.fillStyle = "#15140f";
-      ctx.fill();
-    },
-    0.26,
-  );
-  // Screen.
-  const sx = x + 22;
-  const sy = y + 22;
-  const sw = pw - 44;
-  const sh = ph - 44;
-  ctx.save();
-  roundRectPath(ctx, sx, sy, sw, sh, 58);
-  ctx.clip();
-  ctx.fillStyle = "#ffffff";
-  ctx.fillRect(sx, sy, sw, sh);
-  // Notch.
-  ctx.fillStyle = "#15140f";
-  roundRectPath(ctx, x + pw / 2 - 70, y + 30, 140, 30, 15);
-  ctx.fill();
-  // Logo splash + brand button.
-  drawContained(ctx, logo, sx + sw * 0.2, sy + sh * 0.32, sw * 0.6, sh * 0.22);
-  ctx.fillStyle = brand;
-  roundRectPath(ctx, sx + sw * 0.18, sy + sh * 0.72, sw * 0.64, 64, 32);
-  ctx.fill();
-  ctx.restore();
-  return c;
-}
-
-function signageScene(logo: Drawable, brand: string): HTMLCanvasElement {
-  const { c, ctx } = sceneCanvas(shade(brand, 0.82));
-  // Subtle wall banding for depth.
-  ctx.fillStyle = shade(brand, 0.86);
-  ctx.fillRect(0, 0, SCENE_W, SCENE_H / 2);
-  const pw = 980;
-  const ph = 600;
-  const x = (SCENE_W - pw) / 2;
-  const y = (SCENE_H - ph) / 2;
-  withShadow(
-    ctx,
-    90,
-    44,
-    () => {
-      roundRectPath(ctx, x, y, pw, ph, 20);
-      ctx.fillStyle = "#ffffff";
-      ctx.fill();
-    },
-    0.24,
-  );
-  // Brand accent bar along the bottom of the sign.
-  ctx.save();
-  roundRectPath(ctx, x, y, pw, ph, 20);
-  ctx.clip();
-  ctx.fillStyle = brand;
-  ctx.fillRect(x, y + ph - 26, pw, 26);
-  ctx.restore();
-  drawContained(ctx, logo, x + pw * 0.16, y + ph * 0.18, pw * 0.68, ph * 0.56);
-  return c;
-}
-
-export function mockupScenes(
-  img: HTMLImageElement,
-  transFull: HTMLCanvasElement,
-  cutoutOk: boolean,
-  ctx: DeterministicCtx,
-): AssetSpec[] {
-  const { brandColor } = ctx;
-  // Every scene prints the logo on a light surface (card, screen, sign). A
-  // monochrome light logo would vanish there, so print its dark form - exactly
-  // how you'd put a white logo on a light surface. Colorful or dark logos keep
-  // their real artwork.
-  const ink = inkStats(transFull);
-  const lightMono =
-    cutoutOk && ink.luma > INK_LIGHT && ink.chroma < INK_MONO_CHROMA;
-  const logo: Drawable = lightMono
-    ? recolor(transFull, DARK_SURFACE, true)
-    : cutoutOk
-      ? transFull
-      : img;
-  const png = (draw: () => HTMLCanvasElement) => () => canvasToBlob(draw());
-  const G = "Product mockups";
-  return [
-    {
-      group: G,
-      name: "Business card",
-      filename: "scenes/business-card.png",
-      build: png(() => businessCardScene(logo, brandColor)),
-    },
-    {
-      group: G,
-      name: "Website",
-      filename: "scenes/website.png",
-      build: png(() => browserScene(logo, brandColor)),
-    },
-    {
-      group: G,
-      name: "Phone app",
-      filename: "scenes/phone.png",
-      build: png(() => phoneScene(logo, brandColor)),
-    },
-    {
-      group: G,
-      name: "Signage",
-      filename: "scenes/signage.png",
-      build: png(() => signageScene(logo, brandColor)),
-    },
-  ];
-}
 
 // ── Merch mockups (real photo plates, deterministic composites) ──────────
 // Photoreal blank-product photography shipped with the app (public/merch/*,
@@ -2015,7 +1720,7 @@ export function paletteFiles(palette: string[]): { css: string; json: string } {
 
 export function readme(companyName: string, palette: string[]): string {
   const name = companyName || "Your logo";
-  return `${name}: brand kit\nGenerated with LogoCreator.\n\nFOLDERS\n  variants/   original (1024) + transparent, monochrome (black/white), on-light, on-dark + logo.svg (auto-traced vector)\n  icons/      icon + app icon, and a full favicon set (16/32/48/180/192/512)\n  social/     avatar, Open Graph card, social banner, repeating pattern\n  scenes/     product mockups (on-device): business card, website, phone, signage\n  merch/      your logo printed on real product photos: t-shirt, mug, tote\n  mockups/    AI product shots: business card, signage\n  brand-colors.css / .json with the extracted palette: ${palette.join(", ")}\n  style-guide.pdf  printable brand guidelines: logo, clear space, color, type\n\nQUICK USE\n  - Favicon:   icons/favicon-32.png, favicon-16.png\n  - iOS:       icons/apple-touch-icon-180.png\n  - PWA/app:   icons/icon-192.png, icon-512.png, app-icon.png\n  - Link card: social/og-1200x630.png\n  - Header:    social/banner-1500x500.png\n  - Merch:     merch/ (ready-to-share product visuals)\n`;
+  return `${name}: brand kit\nGenerated with LogoCreator.\n\nFOLDERS\n  variants/   transparent, on-light, on-dark + logo.svg (auto-traced vector)\n  merch/      your logo on real product photos (t-shirt, mug, tote) + AI business card & signage shots\n  social/     avatar, Open Graph card, social banner\n  icons/      app-icon-1024 + favicon-32\n  brand-colors.css / .json with the extracted palette: ${palette.join(", ")}\n  style-guide.pdf  printable brand guidelines: logo, clear space, color, type\n\nQUICK USE\n  - Favicon:   icons/favicon-32.png\n  - App/PWA:   icons/app-icon-1024.png (resize as needed)\n  - Link card: social/og-1200x630.png\n  - Header:    social/banner-1500x500.png\n  - Merch:     merch/ (ready-to-share product visuals)\n`;
 }
 
 export async function zipFiles(
@@ -2111,28 +1816,20 @@ export async function editLogo(
 export function aiAssetSpecs(
   apiKey: string,
   image: string,
-  logoType: string,
   lightInk = false,
 ): AssetSpec[] {
   // Reproduce-exactly + treat-background-as-transparent guard, appended to each.
   const FID =
     "Treat the logo's plain background as transparent: print only the colored logo artwork itself, never a white or colored rectangle behind it. Reproduce the logo exactly: same colors, shapes, spacing and proportions; do not enlarge it disproportionately, crop it, redraw it, or add any extra text.";
 
-  // Lockup guard: keep the real artwork, just re-arrange it on a clean flat
-  // background. A light logo is put on a dark charcoal field (else a white logo
-  // would sit invisibly on a white background); a dark/colored logo on white.
-  const lockSurface = lightInk
-    ? "a solid dark charcoal background (around #161615)"
-    : "a clean, flat, plain white background";
-  const LOCK = `Keep the exact same colors, shapes and letterforms. Do not redraw or restyle anything. Output the logo on ${lockSurface} with generous even padding: no drop shadow, no mockup, no surrounding object or frame, no watermark, and add no extra text, labels or tagline.`;
-
-  // Mockup product surfaces flip dark for a light logo so the print is
-  // visible (a white logo on a bright white card reads as nothing). Merch
-  // (tee/tote/mug) is no longer AI: those are deterministic photo-plate
-  // composites in merchMockups().
+  // Product surfaces flip dark for a light logo so the print is visible (a
+  // white logo on a bright white card reads as nothing).
   const card = lightInk ? "matte charcoal" : "bright white";
   const wall = lightInk ? "dark matte charcoal" : "light matte concrete";
 
+  // These two live in the same "Merch" group as the deterministic photo-plate
+  // prints (tee / mug / tote), listed after them; `ai` marks them as the only
+  // metered renders in the kit.
   const mk = (
     name: string,
     filename: string,
@@ -2140,84 +1837,27 @@ export function aiAssetSpecs(
     w = 1024,
     h = 1024,
   ): AssetSpec => ({
-    group: "Mockups",
+    group: "Merch",
     name,
     filename,
+    ai: true,
     build: () => editLogo(apiKey, image, `${prompt} ${FID}`, w, h),
   });
 
-  const lock = (
-    name: string,
-    filename: string,
-    prompt: string,
-    w = 1024,
-    h = 1024,
-  ): AssetSpec => ({
-    group: "Logo lockups",
-    name,
-    filename,
-    build: () => editLogo(apiKey, image, `${prompt} ${LOCK}`, w, h),
-  });
-
-  // Logo-type aware layout variants. Only logos with separable parts can be
-  // re-arranged: a combination mark (icon + name) gets the full set; an emblem
-  // can surrender its central symbol. Icon-only / wordmark / monogram / abstract
-  // marks have nothing to split, so they get no lockups (the deterministic
-  // on-light / on-dark / mono / transparent variants already cover them).
-  const lockups: AssetSpec[] = [];
-  if (logoType === "icon-name") {
-    lockups.push(
-      lock(
-        "Icon only",
-        "lockups/icon-only.png",
-        `Show ONLY the icon or symbol from this logo. Completely remove all text, letters and the company name, keeping just the graphic icon centered with generous padding.`,
-      ),
-      lock(
-        "Wordmark",
-        "lockups/wordmark.png",
-        `Show ONLY the company name from this logo as a clean horizontal wordmark. Completely remove the icon or symbol, keeping just the lettering centered.`,
-        1344,
-        768,
-      ),
-      lock(
-        "Horizontal",
-        "lockups/horizontal.png",
-        `Re-arrange this logo into a horizontal lockup: the icon on the left and the company name immediately to its right, both vertically centered and evenly spaced. Only change the arrangement.`,
-        1344,
-        768,
-      ),
-      lock(
-        "Stacked",
-        "lockups/stacked.png",
-        `Re-arrange this logo into a vertical stacked lockup: the icon centered on top with the company name centered directly below it, balanced spacing. Only change the arrangement.`,
-      ),
-    );
-  } else if (logoType === "emblem") {
-    lockups.push(
-      lock(
-        "Icon only",
-        "lockups/icon-only.png",
-        `Show ONLY the central icon or symbol from inside this emblem. Remove the surrounding company name, text and outer border, keeping just the central graphic centered with generous padding.`,
-      ),
-    );
-  }
-
-  const mockups = [
+  return [
     mk(
       "Business card",
-      "mockups/business-card.png",
+      "merch/business-card.png",
       `Top-down photo of two ${card} standard landscape rectangular business cards (3.5 by 2 inch proportions, clearly wider than tall) on a soft neutral surface, one slightly overlapping the other. The top card shows the provided logo centered, occupying about 55% of the card width. Minimal elegant studio lighting.`,
       1344,
       768,
     ),
     mk(
       "Signage",
-      "mockups/signage.png",
+      "merch/signage.png",
       `Photorealistic architectural photo of the provided logo as clean dimensional signage mounted on a modern ${wall} wall beside a glass entrance, in soft daytime light. The logo sits in the left-center at a realistic, moderate size.`,
       1344,
       768,
     ),
   ];
-
-  return [...lockups, ...mockups];
 }
