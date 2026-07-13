@@ -276,18 +276,20 @@ export async function POST(req: Request) {
 
   try {
     // Text-bearing types (wordmark / monogram / emblem / icon-name) embed the
-    // company name letter-for-letter; Ideogram renders in-image lettering far
-    // more reliably than FLUX. Keep FLUX.2-pro for text-free marks (icon /
-    // abstract), where it excels. Both accept this body shape on Together.
+    // company name letter-for-letter; Gemini Flash Image renders lettering
+    // reliably AND follows structural instructions (e.g. "monogram") better
+    // than Ideogram did, at roughly half Ideogram's latency (picked in the
+    // 2026-07-10 side-by-side shootout). Keep FLUX.2-pro for text-free marks
+    // (icon / abstract), where it still wins on polish.
     const body = {
       prompt,
-      model: hasText ? "ideogram/ideogram-3.0" : "black-forest-labs/FLUX.2-pro",
+      model: hasText ? "google/flash-image-3.1" : "black-forest-labs/FLUX.2-pro",
       width: 1024,
       height: 1024,
       response_format: "base64" as const,
       // Higher guidance = stricter prompt/color adherence, the right trade for
       // brand marks. Verified live: FLUX.2-pro accepts `guidance` (but NOT
-      // `steps`) on Together; Ideogram accepts neither, so it gets none.
+      // `steps`) on Together; the Google model gets none.
       ...(hasText ? {} : { guidance: 7 }),
     };
     const response = await client.images.generate(body);

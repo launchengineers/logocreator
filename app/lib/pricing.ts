@@ -7,10 +7,11 @@
 // FLUX.2-pro ≈ $0.03 per 1024² image (text-free icon / abstract marks).
 export const PRICE_PER_LOGO = 0.03;
 // Text-bearing types (wordmark / monogram / emblem / icon-name) route to
-// Ideogram for accurate lettering ≈ $0.06 per image.
-export const PRICE_PER_TEXT_LOGO = 0.06;
+// Gemini Flash Image 3.1 for accurate lettering. Together quotes $0.047 at
+// 512² and scales with size; ~$0.05 is the honest ballpark for 1024².
+export const PRICE_PER_TEXT_LOGO = 0.05;
 
-/** Per-logo estimate for a given logo type (text types cost more on Ideogram). */
+/** Per-logo estimate for a given logo type (text types cost more than FLUX). */
 export function pricePerLogo(logoType: string | undefined): number {
   return ["icon-name", "wordmark", "monogram", "emblem"].includes(
     logoType ?? "icon-name",
