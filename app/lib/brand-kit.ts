@@ -155,45 +155,41 @@ export function makeTransparent(
     if (y < h - 1) seed(p + w);
   }
 
-  // Enclosed counters: after the border fill, any still-opaque pixel that is
-  // within the TIGHT tolerance of the reference bg is a letter hole (the "o",
-  // "a", "b" counters) or gap the flood couldn't reach because ink surrounds
-  // it. It is literally the background color, so clear it too — otherwise the
-  // "transparent" logo ships with pale filled counters. A tighter band than
-  // the border fill keeps genuine light highlights (a different color the
-  // model drew on purpose) intact.
-  const tolTight = tol * 0.82;
-  for (let p = 0; p < w * h; p++) {
-    if (d[p * 4 + 3] >= 16 && !visited[p] && dist(p) < tolTight) {
-      d[p * 4 + 3] = 0;
-    }
-  }
-
-  // Despeckle: JPEG noise can leave small opaque islands of near-background
-  // pixels floating next to the mark (the "residue" that cheapens the cutout).
-  // Any surviving connected component made ONLY of bg-band pixels and smaller
-  // than a speck threshold is background noise, not artwork: real marks (or
-  // mark details) in a bg-like color are far larger or connect to non-bg ink.
+  // Enclosed pockets + noise, decided per REGION rather than per pixel. JPEG
+  // noise and anti-alias contamination drag individual counter pixels away
+  // from the exact background color, which is how letter holes ("o", "a",
+  // "b") kept shipping filled and then glowed on dark surfaces. A region's
+  // MEAN color averages that noise away, so walk every connected component
+  // of still-opaque, bg-band pixels and clear it when either:
+  //   - its mean color is still essentially the background (a hole showing
+  //     the backdrop through the ink), whatever its size; or
+  //   - it is smaller than the speck threshold (floating JPEG noise).
+  // A component bigger than a fifth of the image is never mean-cleared:
+  // at that scale it would be the artwork itself (a very pale logo), not a
+  // pocket in the ink.
   {
     const speckMax = Math.max(64, Math.round(w * h * 0.0002)); // ~200px @1024²
+    const meanTol = tol * 1.3;
+    const areaCap = Math.round(w * h * 0.2);
     const comp = new Uint8Array(w * h); // 1 = already assigned to a component
-    const members = new Int32Array(speckMax + 1);
+    const members = new Int32Array(w * h);
     for (let start = 0; start < w * h; start++) {
       if (comp[start] || d[start * 4 + 3] === 0 || dist(start) >= tolSoft) {
         continue;
       }
-      // Walk the FULL component (early-stopping could strand unexplored
-      // fragments that would later masquerade as small specks); only the
-      // first speckMax member positions are stored, since anything larger
-      // is kept regardless.
       let count = 0;
+      let sumR = 0;
+      let sumG = 0;
+      let sumB = 0;
       let sp2 = 0;
       stack[sp2++] = start;
       comp[start] = 1;
       while (sp2 > 0) {
         const p = stack[--sp2];
-        if (count <= speckMax) members[count] = p;
-        count++;
+        members[count++] = p;
+        sumR += d[p * 4];
+        sumG += d[p * 4 + 1];
+        sumB += d[p * 4 + 2];
         const x = p % w;
         const y = (p - x) / w;
         for (const q of [
@@ -208,7 +204,11 @@ export function makeTransparent(
           stack[sp2++] = q;
         }
       }
-      if (count <= speckMax) {
+      const meanDist =
+        Math.abs(sumR / count - br) +
+        Math.abs(sumG / count - bg) +
+        Math.abs(sumB / count - bb);
+      if (count <= speckMax || (meanDist < meanTol && count < areaCap)) {
         for (let i = 0; i < count; i++) d[members[i] * 4 + 3] = 0;
       }
     }

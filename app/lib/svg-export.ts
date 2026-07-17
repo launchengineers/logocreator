@@ -79,7 +79,47 @@ function flattenBackground(
   ctx.putImageData(image, 0, 0);
 }
 
-export async function logoToSvgString(src: string): Promise<string> {
+/**
+ * For key-out tracing: a chroma key the artwork itself doesn't use, so the
+ * background layer can be stripped from the traced SVG without ever touching
+ * an ink color. Sampled against the actual pixels; the candidate furthest
+ * from every color in the artwork wins.
+ */
+function pickKeyColor(
+  d: Uint8ClampedArray,
+  w: number,
+  h: number,
+): [number, number, number] {
+  const candidates: [number, number, number][] = [
+    [255, 0, 255],
+    [0, 255, 0],
+    [0, 255, 255],
+    [255, 128, 0],
+  ];
+  let best = candidates[0];
+  let bestScore = -1;
+  for (const cand of candidates) {
+    let minDist = Infinity;
+    for (let p = 0; p < w * h; p += 7) {
+      if (d[p * 4 + 3] < 24) continue; // transparent: not artwork
+      const dist =
+        Math.abs(d[p * 4] - cand[0]) +
+        Math.abs(d[p * 4 + 1] - cand[1]) +
+        Math.abs(d[p * 4 + 2] - cand[2]);
+      if (dist < minDist) minDist = dist;
+    }
+    if (minDist > bestScore) {
+      bestScore = minDist;
+      best = cand;
+    }
+  }
+  return best;
+}
+
+export async function logoToSvgString(
+  src: string,
+  opts: { keyOut?: boolean } = {},
+): Promise<string> {
   // Lazy-loaded: imagetracerjs is ~3.2MB and only needed on an SVG export click,
   // so it stays out of the first-load bundle.
   const { default: ImageTracer } = await import("imagetracerjs");
@@ -91,17 +131,57 @@ export async function logoToSvgString(src: string): Promise<string> {
   canvas.height = h;
   const ctx = canvas.getContext("2d", { willReadFrequently: true });
   if (!ctx) throw new Error("Canvas unavailable");
-  // Opaque white base so transparent inputs flatten cleanly.
-  ctx.fillStyle = "#ffffff";
-  ctx.fillRect(0, 0, w, h);
-  ctx.drawImage(img, 0, 0, w, h);
+
+  let key: [number, number, number] | null = null;
+  if (opts.keyOut) {
+    // Transparent-input path (the brand kit's cutout): flatten onto a chroma
+    // key instead of white, trace, then strip the key-colored layers so the
+    // SVG ships with a genuinely transparent background and real counter
+    // holes instead of a baked backdrop.
+    ctx.drawImage(img, 0, 0, w, h);
+    const raw = ctx.getImageData(0, 0, w, h);
+    key = pickKeyColor(raw.data, w, h);
+    // Hard-edge the alpha so anti-aliased half-pixels don't blend with the
+    // key and leave a tinted fringe for the tracer to keep.
+    const rd = raw.data;
+    for (let i = 3; i < rd.length; i += 4) rd[i] = rd[i] < 140 ? 0 : 255;
+    ctx.putImageData(raw, 0, 0);
+    const flat = document.createElement("canvas");
+    flat.width = w;
+    flat.height = h;
+    const fctx = flat.getContext("2d", { willReadFrequently: true })!;
+    fctx.fillStyle = `rgb(${key[0]},${key[1]},${key[2]})`;
+    fctx.fillRect(0, 0, w, h);
+    fctx.drawImage(canvas, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+    ctx.drawImage(flat, 0, 0);
+  } else {
+    // Opaque white base so transparent inputs flatten cleanly.
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, w, h);
+    ctx.drawImage(img, 0, 0, w, h);
+  }
   flattenBackground(ctx, w, h);
   const imgdata = ctx.getImageData(0, 0, w, h);
-  return ImageTracer.imagedataToSVG(imgdata, LOGO_TRACE_OPTS);
+  let svg: string = ImageTracer.imagedataToSVG(imgdata, LOGO_TRACE_OPTS);
+  if (key) {
+    const [kr, kg, kb] = key;
+    svg = svg.replace(/<path\b[^>]*\/>/g, (tag) => {
+      const m = tag.match(/fill="rgb\((\d+),\s*(\d+),\s*(\d+)\)"/);
+      if (!m) return tag;
+      const dist =
+        Math.abs(+m[1] - kr) + Math.abs(+m[2] - kg) + Math.abs(+m[3] - kb);
+      return dist < 96 ? "" : tag;
+    });
+  }
+  return svg;
 }
 
-export async function logoToSvgBlob(src: string): Promise<Blob> {
-  const svg = await logoToSvgString(src);
+export async function logoToSvgBlob(
+  src: string,
+  opts: { keyOut?: boolean } = {},
+): Promise<Blob> {
+  const svg = await logoToSvgString(src, opts);
   return new Blob([svg], { type: "image/svg+xml" });
 }
 

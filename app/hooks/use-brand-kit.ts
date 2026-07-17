@@ -16,6 +16,7 @@ import {
   readme,
   slugify,
   toDataUrl,
+  transparentFraction,
   zipFiles,
 } from "@/app/lib/brand-kit";
 import { logoToSvgBlob } from "@/app/lib/svg-export";
@@ -184,13 +185,22 @@ export function useBrandKit(apiKey: string): BrandKitController {
         brandColor,
         palette: pal,
       });
+      // Trace the cutout when there is one: the SVG then ships with a truly
+      // transparent background and real counter holes (background keyed out
+      // of the trace), instead of a baked backdrop rectangle.
+      const svgFromCutout = transparentFraction(transparent) > 0.06;
       det.push({
         group: "Logo variants",
         // Honest label: this is an on-device auto-trace of the raster, not a
         // hand-drawn vector (good for scaling, not designer-grade paths).
         name: "SVG (auto-traced)",
         filename: "variants/logo.svg",
-        build: () => logoToSvgBlob(dataUrl),
+        build: () =>
+          svgFromCutout
+            ? logoToSvgBlob(transparent.toDataURL("image/png"), {
+                keyOut: true,
+              })
+            : logoToSvgBlob(dataUrl),
       });
       // Light logos need dark surfaces in the AI product shots too, or a white
       // logo prints invisibly on a white card / white wall.
